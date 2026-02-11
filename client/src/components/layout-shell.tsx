@@ -27,10 +27,10 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navigation = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Opportunities', href: '/grants', icon: Files },
-    { name: 'Saved Grants', href: '/saved', icon: BookMarked },
-    { name: 'Company Profile', href: '/profile', icon: Briefcase },
+    { name: 'Panel de Control', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Oportunidades', href: '/grants', icon: Files },
+    { name: 'Guardadas', href: '/saved', icon: BookMarked },
+    { name: 'Perfil de Empresa', href: '/profile', icon: Briefcase },
   ];
 
   const handleLogout = () => {
@@ -89,7 +89,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
           <div className="mt-8">
             <h3 className="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Your Profile
+              Tu Perfil
             </h3>
             <div className="mt-2 px-3 py-3 bg-slate-50 rounded-xl border border-slate-100">
               <div className="flex items-center gap-3">
@@ -99,7 +99,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-900 truncate">
-                    {company?.name || user?.firstName || 'User'}
+                    {company?.name || user?.firstName || 'Usuario'}
                   </p>
                   <p className="text-xs text-slate-500 truncate">
                     {user?.email}
@@ -117,7 +117,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
             onClick={handleLogout}
           >
             <LogOut size={18} className="mr-2" />
-            Sign Out
+            Cerrar Sesión
           </Button>
         </div>
       </aside>

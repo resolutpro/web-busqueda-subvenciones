@@ -27,8 +27,8 @@ export default function GrantsListPage() {
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-display font-bold text-slate-900">Grant Opportunities</h1>
-            <p className="text-slate-500 mt-1">Explore funding matched to your profile</p>
+            <h1 className="text-3xl font-display font-bold text-slate-900">Oportunidades de Subvención</h1>
+            <p className="text-slate-500 mt-1">Explora las ayudas emparejadas con tu perfil</p>
           </div>
         </div>
 
@@ -37,7 +37,7 @@ export default function GrantsListPage() {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
             <Input 
-              placeholder="Search grants..." 
+              placeholder="Buscar subvenciones..." 
               className="pl-9 bg-slate-50 border-slate-200" 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -47,12 +47,12 @@ export default function GrantsListPage() {
             <Select value={scope} onValueChange={setScope}>
               <SelectTrigger>
                 <Filter className="h-4 w-4 mr-2 text-slate-400" />
-                <SelectValue placeholder="All Scopes" />
+                <SelectValue placeholder="Todos los Ámbitos" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Scopes</SelectItem>
+                <SelectItem value="all">Todos los Ámbitos</SelectItem>
                 <SelectItem value="Nacional">Nacional</SelectItem>
-                <SelectItem value="Autonomico">Autonomico</SelectItem>
+                <SelectItem value="Autonomico">Autonómico</SelectItem>
                 <SelectItem value="Europeo">Europeo</SelectItem>
               </SelectContent>
             </Select>
@@ -76,8 +76,8 @@ export default function GrantsListPage() {
               <div className="h-12 w-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400">
                 <Search className="h-6 w-6" />
               </div>
-              <h3 className="text-lg font-medium text-slate-900">No grants found</h3>
-              <p className="text-slate-500">Try adjusting your filters or search terms.</p>
+              <h3 className="text-lg font-medium text-slate-900">No se encontraron subvenciones</h3>
+              <p className="text-slate-500">Prueba ajustando los filtros o términos de búsqueda.</p>
             </div>
           ) : (
             grants?.map((grant) => (
@@ -87,7 +87,7 @@ export default function GrantsListPage() {
                     {/* Match Score */}
                     <div className="flex-shrink-0 flex md:flex-col items-center gap-2 md:w-24 md:border-r border-slate-100 md:pr-6">
                       <MatchScoreBadge score={grant.match?.score || 0} size="md" />
-                      <span className="text-xs text-slate-400 hidden md:block text-center">Compatibility</span>
+                      <span className="text-xs text-slate-400 hidden md:block text-center">Compatibilidad</span>
                     </div>
 
                     {/* Content */}
@@ -104,7 +104,7 @@ export default function GrantsListPage() {
                             </div>
                             <div className="flex items-center">
                               <CalendarDays className="mr-1.5 h-4 w-4 text-slate-400" />
-                              Deadline: {grant.endDate ? new Date(grant.endDate).toLocaleDateString() : 'Open'}
+                              Fecha límite: {grant.endDate ? new Date(grant.endDate).toLocaleDateString() : 'Abierta'}
                             </div>
                           </div>
                         </div>

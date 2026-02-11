@@ -52,15 +52,15 @@ export default function OnboardingPage() {
           <div className="h-12 w-12 rounded-xl bg-primary flex items-center justify-center text-white font-bold text-2xl mx-auto mb-4 shadow-lg shadow-blue-500/30">
             S
           </div>
-          <h1 className="text-3xl font-display font-bold text-slate-900">Welcome to SubvenciónMatch</h1>
-          <p className="text-slate-600 mt-2">Let's set up your company profile to find the best grants for you.</p>
+          <h1 className="text-3xl font-display font-bold text-slate-900">Bienvenido a SubvenciónMatch</h1>
+          <p className="text-slate-600 mt-2">Vamos a configurar el perfil de tu empresa para encontrar las mejores subvenciones para ti.</p>
         </div>
 
         <Card className="border-slate-200 shadow-xl">
           <CardHeader>
-            <CardTitle>Company Details</CardTitle>
+            <CardTitle>Detalles de la Empresa</CardTitle>
             <CardDescription>
-              This information helps our AI match you with relevant funding opportunities.
+              Esta información ayuda a nuestra IA a emparejarte con oportunidades de financiación relevantes.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -72,7 +72,7 @@ export default function OnboardingPage() {
                     name="name"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Company Name</FormLabel>
+                        <FormLabel>Nombre de la Empresa</FormLabel>
                         <FormControl>
                           <div className="relative">
                             <Building2 className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -89,11 +89,11 @@ export default function OnboardingPage() {
                     name="cnae"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>CNAE Code</FormLabel>
+                        <FormLabel>Código CNAE</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g. 6201" {...field} value={field.value || ''} />
+                          <Input placeholder="ej. 6201" {...field} value={field.value || ''} />
                         </FormControl>
-                        <FormDescription>Optional but recommended.</FormDescription>
+                        <FormDescription>Opcional pero recomendado.</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -106,11 +106,11 @@ export default function OnboardingPage() {
                     name="location"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Location (City/Region)</FormLabel>
+                        <FormLabel>Ubicación (Ciudad/Región)</FormLabel>
                         <FormControl>
                           <div className="relative">
                             <MapPin className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                            <Input placeholder="Madrid, Spain" className="pl-9" {...field} value={field.value || ''} />
+                            <Input placeholder="Madrid, España" className="pl-9" {...field} value={field.value || ''} />
                           </div>
                         </FormControl>
                         <FormMessage />
@@ -123,18 +123,18 @@ export default function OnboardingPage() {
                     name="size"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Company Size</FormLabel>
+                        <FormLabel>Tamaño de la Empresa</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value || undefined}>
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Select size" />
+                              <SelectValue placeholder="Seleccionar tamaño" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="micro">Micro (&lt;10 employees)</SelectItem>
-                            <SelectItem value="small">Small (&lt;50 employees)</SelectItem>
-                            <SelectItem value="medium">Medium (&lt;250 employees)</SelectItem>
-                            <SelectItem value="large">Large (250+ employees)</SelectItem>
+                            <SelectItem value="micro">Micro (&lt;10 empleados)</SelectItem>
+                            <SelectItem value="small">Pequeña (&lt;50 empleados)</SelectItem>
+                            <SelectItem value="medium">Mediana (&lt;250 empleados)</SelectItem>
+                            <SelectItem value="large">Grande (250+ empleados)</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -148,19 +148,19 @@ export default function OnboardingPage() {
                   name="description"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Business Description</FormLabel>
+                      <FormLabel>Descripción del Negocio</FormLabel>
                       <FormControl>
                         <div className="relative">
                           <Briefcase className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                           <Textarea 
-                            placeholder="Describe what your company does, your sector, and typical projects..." 
+                            placeholder="Describe qué hace tu empresa, tu sector y proyectos típicos..." 
                             className="pl-9 min-h-[120px]" 
                             {...field} 
                           />
                         </div>
                       </FormControl>
                       <FormDescription>
-                        Crucial for AI matching. Be detailed about your activities.
+                        Crucial para el emparejamiento por IA. Sé detallado sobre tus actividades.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -172,7 +172,7 @@ export default function OnboardingPage() {
                   className="w-full h-11 text-base bg-primary hover:bg-blue-700 shadow-lg shadow-blue-500/20"
                   disabled={createCompany.isPending}
                 >
-                  {createCompany.isPending ? "Creating Profile..." : "Complete Setup"}
+                  {createCompany.isPending ? "Creando Perfil..." : "Completar Configuración"}
                 </Button>
               </form>
             </Form>

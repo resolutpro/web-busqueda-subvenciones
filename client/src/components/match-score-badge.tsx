@@ -40,7 +40,7 @@ export function MatchScoreBadge({ score, size = 'md', showLabel = true }: MatchS
           "text-xs font-medium uppercase tracking-wider",
           score >= 75 ? "text-emerald-600" : score >= 50 ? "text-amber-600" : "text-red-600"
         )}>
-          Match
+          Compatibilidad
         </span>
       )}
     </div>

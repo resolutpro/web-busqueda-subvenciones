@@ -73,15 +73,15 @@ export default function CompanyProfilePage() {
     <LayoutShell>
       <div className="max-w-3xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-3xl font-display font-bold text-slate-900">Company Profile</h1>
-          <p className="text-slate-500">Manage your company details to improve grant matching.</p>
+          <h1 className="text-3xl font-display font-bold text-slate-900">Perfil de la Empresa</h1>
+          <p className="text-slate-500">Gestiona los detalles de tu empresa para mejorar el emparejamiento con ayudas.</p>
         </div>
 
         <Card className="border-slate-200 shadow-sm">
           <CardHeader>
-            <CardTitle>Organization Details</CardTitle>
+            <CardTitle>Detalles de la Organización</CardTitle>
             <CardDescription>
-              Keep this information up to date. Changes will trigger a re-analysis of your grant matches.
+              Mantén esta información actualizada. Los cambios activarán un re-análisis de tus emparejamientos.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -93,7 +93,7 @@ export default function CompanyProfilePage() {
                     name="name"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Company Name</FormLabel>
+                        <FormLabel>Nombre de la Empresa</FormLabel>
                         <FormControl>
                           <Input {...field} />
                         </FormControl>
@@ -107,7 +107,7 @@ export default function CompanyProfilePage() {
                     name="cnae"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>CNAE Code</FormLabel>
+                        <FormLabel>Código CNAE</FormLabel>
                         <FormControl>
                           <Input {...field} value={field.value || ''} />
                         </FormControl>
@@ -123,7 +123,7 @@ export default function CompanyProfilePage() {
                     name="location"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Location</FormLabel>
+                        <FormLabel>Ubicación</FormLabel>
                         <FormControl>
                           <Input {...field} value={field.value || ''} />
                         </FormControl>
@@ -137,18 +137,18 @@ export default function CompanyProfilePage() {
                     name="size"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Company Size</FormLabel>
+                        <FormLabel>Tamaño de la Empresa</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value || undefined}>
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Select size" />
+                              <SelectValue placeholder="Seleccionar tamaño" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="micro">Micro (&lt;10 employees)</SelectItem>
-                            <SelectItem value="small">Small (&lt;50 employees)</SelectItem>
-                            <SelectItem value="medium">Medium (&lt;250 employees)</SelectItem>
-                            <SelectItem value="large">Large (250+ employees)</SelectItem>
+                            <SelectItem value="micro">Micro (&lt;10 empleados)</SelectItem>
+                            <SelectItem value="small">Pequeña (&lt;50 empleados)</SelectItem>
+                            <SelectItem value="medium">Mediana (&lt;250 empleados)</SelectItem>
+                            <SelectItem value="large">Grande (250+ empleados)</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -162,7 +162,7 @@ export default function CompanyProfilePage() {
                   name="description"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Business Description</FormLabel>
+                      <FormLabel>Descripción del Negocio</FormLabel>
                       <FormControl>
                         <Textarea 
                           className="min-h-[150px]" 
@@ -170,7 +170,7 @@ export default function CompanyProfilePage() {
                         />
                       </FormControl>
                       <FormDescription>
-                        Detailed description of your business activities, technology stack, and typical projects.
+                        Descripción detallada de tus actividades comerciales, tecnologías y proyectos típicos.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -183,7 +183,7 @@ export default function CompanyProfilePage() {
                     className="bg-primary hover:bg-blue-700"
                     disabled={updateCompany.isPending}
                   >
-                    {updateCompany.isPending ? "Saving..." : "Save Changes"}
+                    {updateCompany.isPending ? "Guardando..." : "Guardar Cambios"}
                   </Button>
                 </div>
               </form>

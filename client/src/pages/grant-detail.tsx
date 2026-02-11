@@ -40,7 +40,7 @@ export default function GrantDetailPage() {
         <Link href="/grants">
           <div className="inline-flex items-center text-sm font-medium text-slate-500 hover:text-primary mb-4 cursor-pointer">
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Grants
+            Volver a Ayudas
           </div>
         </Link>
 
@@ -67,21 +67,21 @@ export default function GrantDetailPage() {
                 <div className="flex items-center text-slate-700">
                   <Wallet className="mr-2 h-5 w-5 text-emerald-500" />
                   <span className="font-semibold">€{grant.budget?.toLocaleString()}</span>
-                  <span className="text-slate-400 ml-1 text-sm">Total Budget</span>
+                  <span className="text-slate-400 ml-1 text-sm">Presupuesto Total</span>
                 </div>
                 <div className="flex items-center text-slate-700">
                   <Calendar className="mr-2 h-5 w-5 text-blue-500" />
                   <span className="font-semibold">
-                    {grant.endDate ? new Date(grant.endDate).toLocaleDateString() : 'Open'}
+                    {grant.endDate ? new Date(grant.endDate).toLocaleDateString() : 'Abierta'}
                   </span>
-                  <span className="text-slate-400 ml-1 text-sm">Deadline</span>
+                  <span className="text-slate-400 ml-1 text-sm">Fecha Límite</span>
                 </div>
               </div>
             </div>
 
             <div className="flex flex-col gap-3 md:w-48">
               <Button className="w-full bg-primary hover:bg-blue-700 shadow-lg shadow-blue-500/20">
-                Apply Now <ExternalLink className="ml-2 h-4 w-4" />
+                Solicitar Ahora <ExternalLink className="ml-2 h-4 w-4" />
               </Button>
               <div className="grid grid-cols-2 gap-2">
                 <Button 
@@ -90,7 +90,7 @@ export default function GrantDetailPage() {
                   onClick={() => updateStatus.mutate({ id: grant.match!.id, status: isSaved ? 'new' : 'saved' })}
                 >
                   <Bookmark className={cn("h-4 w-4 mr-2", isSaved && "fill-current")} />
-                  {isSaved ? "Saved" : "Save"}
+                  {isSaved ? "Guardada" : "Guardar"}
                 </Button>
                 <Button 
                   variant={isApplied ? "secondary" : "outline"}
@@ -98,7 +98,7 @@ export default function GrantDetailPage() {
                   onClick={() => updateStatus.mutate({ id: grant.match!.id, status: isApplied ? 'new' : 'applied' })}
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  {isApplied ? "Applied" : "Track"}
+                  {isApplied ? "Solicitada" : "Seguimiento"}
                 </Button>
               </div>
             </div>
@@ -110,13 +110,13 @@ export default function GrantDetailPage() {
           <TabsList className="bg-white border border-slate-200 p-1 rounded-xl w-full md:w-auto grid grid-cols-3 md:inline-flex h-auto">
             <TabsTrigger value="ai-summary" className="py-2.5 rounded-lg data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
               <Sparkles className="h-4 w-4 mr-2" />
-              AI Analysis
+              Análisis IA
             </TabsTrigger>
             <TabsTrigger value="details" className="py-2.5 rounded-lg data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
-              Details
+              Detalles
             </TabsTrigger>
             <TabsTrigger value="requirements" className="py-2.5 rounded-lg data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
-              Requirements
+              Requisitos
             </TabsTrigger>
           </TabsList>
 
@@ -124,17 +124,17 @@ export default function GrantDetailPage() {
             <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
               <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-blue-600" />
-                Why this matches your company
+                Por qué encaja con tu empresa
               </h3>
               <p className="text-slate-600 leading-relaxed mb-8">
-                {aiAnalysis?.summary || "AI analysis not available for this grant yet."}
+                {aiAnalysis?.summary || "Análisis de IA no disponible para esta ayuda todavía."}
               </p>
 
               <div className="grid md:grid-cols-2 gap-8">
                 <div>
                   <h4 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
                     <Wallet className="h-4 w-4 text-emerald-500" />
-                    Eligible Expenses
+                    Gastos Elegibles
                   </h4>
                   <ul className="space-y-3">
                     {aiAnalysis?.expenses?.map((item, i) => (
@@ -143,13 +143,13 @@ export default function GrantDetailPage() {
                         {item}
                       </li>
                     ))}
-                    {!aiAnalysis?.expenses && <li className="text-slate-400 italic">No specific expenses extracted.</li>}
+                    {!aiAnalysis?.expenses && <li className="text-slate-400 italic">No se han extraído gastos específicos.</li>}
                   </ul>
                 </div>
                 <div>
                   <h4 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
                     <AlertCircle className="h-4 w-4 text-amber-500" />
-                    Key Requirements
+                    Requisitos Clave
                   </h4>
                   <ul className="space-y-3">
                     {aiAnalysis?.requirements?.map((item, i) => (
@@ -158,7 +158,7 @@ export default function GrantDetailPage() {
                         {item}
                       </li>
                     ))}
-                    {!aiAnalysis?.requirements && <li className="text-slate-400 italic">No specific requirements extracted.</li>}
+                    {!aiAnalysis?.requirements && <li className="text-slate-400 italic">No se han extraído requisitos específicos.</li>}
                   </ul>
                 </div>
               </div>
@@ -167,19 +167,19 @@ export default function GrantDetailPage() {
 
           <TabsContent value="details">
             <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm prose prose-slate max-w-none">
-              <h3 className="text-lg font-bold text-slate-900 mb-4">Full Description</h3>
+              <h3 className="text-lg font-bold text-slate-900 mb-4">Descripción Completa</h3>
               <div className="whitespace-pre-wrap text-slate-600">
-                {grant.rawText || "No full description available."}
+                {grant.rawText || "No hay descripción completa disponible."}
               </div>
             </div>
           </TabsContent>
 
           <TabsContent value="requirements">
             <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
-               <h3 className="text-lg font-bold text-slate-900 mb-4">Eligibility Criteria</h3>
+               <h3 className="text-lg font-bold text-slate-900 mb-4">Criterios de Elegibilidad</h3>
                <p className="text-slate-600">
-                 Detailed eligibility requirements are extracted from the official documentation. 
-                 Please verify all criteria in the official bulletin before applying.
+                 Los requisitos detallados de elegibilidad se extraen de la documentación oficial. 
+                 Por favor, verifica todos los criterios en el boletín oficial antes de solicitar.
                </p>
             </div>
           </TabsContent>

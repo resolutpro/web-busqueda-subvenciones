@@ -45,10 +45,10 @@ export default function DashboardPage() {
             <h1 className="text-3xl font-display font-bold text-slate-900">
               Buenos días, {company?.name}
             </h1>
-            <p className="text-slate-500 mt-1">Here's your funding overview for today.</p>
+            <p className="text-slate-500 mt-1">Aquí tienes el resumen de ayudas para hoy.</p>
           </div>
           <Button asChild>
-            <Link href="/grants">Find New Grants <ArrowRight className="ml-2 h-4 w-4" /></Link>
+            <Link href="/grants">Buscar Nuevas Ayudas <ArrowRight className="ml-2 h-4 w-4" /></Link>
           </Button>
         </div>
 
@@ -61,7 +61,7 @@ export default function DashboardPage() {
                   <Sparkles className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-500">New Opportunities</p>
+                  <p className="text-sm font-medium text-slate-500">Nuevas Oportunidades</p>
                   <h3 className="text-2xl font-bold text-slate-900">{highMatches.length}</h3>
                 </div>
               </div>
@@ -75,7 +75,7 @@ export default function DashboardPage() {
                   <Clock className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-500">In Progress</p>
+                  <p className="text-sm font-medium text-slate-500">En Progreso</p>
                   <h3 className="text-2xl font-bold text-slate-900">{appliedMatches.length}</h3>
                 </div>
               </div>
@@ -89,7 +89,7 @@ export default function DashboardPage() {
                   <Wallet className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-500">Potential Funding</p>
+                  <p className="text-sm font-medium text-slate-500">Financiación Potencial</p>
                   <h3 className="text-2xl font-bold text-slate-900">€{totalPotentialFunding.toLocaleString()}</h3>
                 </div>
               </div>
@@ -102,10 +102,10 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-blue-600" />
-              Top Recommendations
+              Principales Recomendaciones
             </h2>
             <Link href="/grants" className="text-sm font-medium text-blue-600 hover:text-blue-700">
-              View all
+              Ver todas
             </Link>
           </div>
 
@@ -133,7 +133,7 @@ export default function DashboardPage() {
                     </div>
                     {grant.budget && (
                       <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                        <span className="text-xs text-slate-500 font-medium uppercase">Budget</span>
+                        <span className="text-xs text-slate-500 font-medium uppercase">Presupuesto</span>
                         <span className="font-bold text-slate-900">€{grant.budget.toLocaleString()}</span>
                       </div>
                     )}
