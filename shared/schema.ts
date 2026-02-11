@@ -1,4 +1,14 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, real, varchar } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  serial,
+  integer,
+  boolean,
+  timestamp,
+  jsonb,
+  real,
+  varchar,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -10,7 +20,9 @@ export * from "./models/auth";
 
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id),
   name: text("name").notNull(),
   cnae: text("cnae"),
   location: text("location"),
@@ -21,6 +33,7 @@ export const companies = pgTable("companies", {
 
 export const grants = pgTable("grants", {
   id: serial("id").primaryKey(),
+  bdnsId: text("bdns_id").unique(),
   title: text("title").notNull(),
   organismo: text("organismo").notNull(), // e.g. Ministerio de Industria
   scope: text("scope").notNull(), // 'Nacional', 'Autonomico', 'Local', 'Europeo'
@@ -34,8 +47,12 @@ export const grants = pgTable("grants", {
 
 export const matches = pgTable("matches", {
   id: serial("id").primaryKey(),
-  companyId: integer("company_id").notNull().references(() => companies.id),
-  grantId: integer("grant_id").notNull().references(() => grants.id),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  grantId: integer("grant_id")
+    .notNull()
+    .references(() => grants.id),
   score: integer("score").notNull(), // 0-100
   status: text("status").notNull().default("new"), // 'new', 'viewed', 'saved', 'dismissed', 'applied'
   aiAnalysis: jsonb("ai_analysis"), // { summary: "...", expenses: "...", requirements: "..." }
@@ -69,20 +86,20 @@ export const matchesRelations = relations(matches, ({ one }) => ({
 
 // === SCHEMAS ===
 
-export const insertCompanySchema = createInsertSchema(companies).omit({ 
-  id: true, 
-  userId: true, 
-  createdAt: true 
+export const insertCompanySchema = createInsertSchema(companies).omit({
+  id: true,
+  userId: true,
+  createdAt: true,
 });
 
-export const insertGrantSchema = createInsertSchema(grants).omit({ 
-  id: true, 
-  createdAt: true 
+export const insertGrantSchema = createInsertSchema(grants).omit({
+  id: true,
+  createdAt: true,
 });
 
-export const insertMatchSchema = createInsertSchema(matches).omit({ 
-  id: true, 
-  createdAt: true 
+export const insertMatchSchema = createInsertSchema(matches).omit({
+  id: true,
+  createdAt: true,
 });
 
 // === TYPES ===
