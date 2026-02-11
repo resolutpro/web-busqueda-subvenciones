@@ -1,0 +1,63 @@
+Actúa como un Arquitecto de Software Senior y Product Manager especializado en desarrollo de plataformas SaaS B2B.
+
+Proyecto: Vamos a construir una Plataforma de Inteligencia de Subvenciones (España y Europa). Objetivo: Ingestar automáticamente convocatorias públicas, procesarlas y ofrecer un sistema de "Match" inteligente que cruce los datos de la subvención con el perfil de la empresa del usuario.
+
+1. ARQUITECTURA DE DATOS Y FUENTES (BACKEND) Necesito un pipeline de ingestión de datos (ETL) que consulte las siguientes fuentes diariamente:
+
+Fuentes Primarias (España):
+
+BDNS (Base Nacional de Datos de Subvenciones): Realizar scraping recurrente sobre infosubvenciones.es para extraer convocatorias.
+
+BOE (Boletín Oficial del Estado): Consumir su API (BOE a la carta) o procesar XML de alertas.
+
+Boletines Autonómicos: Implementar un lector de RSS para los boletines regionales.
+
+Fuentes Europeas:
+
+TED (Tenders Electronic Daily): Consumir su API pública para ayudas europeas.
+
+Procesado de Documentos:
+
+El sistema debe detectar enlaces a PDFs en las convocatorias.
+
+Implementar OCR y extracción de texto para leer las "bases reguladoras" adjuntas.
+
+2. MODELADO DE DATOS (BASE DE DATOS) Diseña un esquema (SQL/NoSQL) que almacene, como mínimo:
+
+id_convocatoria: Identificador único.
+
+titulo: String.
+
+organismo: String (ej: Ministerio de Industria).
+
+ambito_geografico: Enum (Nacional, Autonómico, Local, Europeo).
+
+fechas: {inicio, fin}.
+
+presupuesto: Float.
+
+raw_text: Texto completo extraído (para búsqueda semántica).
+
+structured_tags: Array (Sectores CNAE, Tipo de beneficiario: PYME/Autónomo).
+
+vector_embedding: Representación vectorial del texto de la subvención (para el matching).
+
+3. LÓGICA DE NEGOCIO: EL "MATCHING" La funcionalidad core es el filtrado inteligente:
+
+Input Usuario: El usuario introduce datos de su empresa (CNAE, Ubicación, Tamaño) y una descripción en lenguaje natural de su actividad.
+
+Algoritmo: Generar un embedding del perfil de la empresa y compararlo (búsqueda vectorial) con los embeddings de las subvenciones activas.
+
+Scoring: Devolver un % de compatibilidad (0-100%).
+
+4. FRONTEND Y UX (FUNCIONALIDADES) La web debe ser un Dashboard (React/Next.js o similar):
+
+Onboarding: Formulario para crear el "Perfil de Empresa" (esencial para el filtrado).
+
+Feed de Oportunidades: Vista de tarjetas (Cards) con las nuevas subvenciones.
+
+Visualización: Título, plazo, cuantía y un Badge grande con el % de Match (verde/amarillo/rojo).
+
+Filtros Manuales: Facetas laterales para filtrar por Comunidad Autónoma, Sector y Cuantía mínima.
+
+Detalle: Al hacer clic en una tarjeta, mostrar un resumen generado por IA (LLM) de los puntos clave: "Gastos subvencionables" y "Requisitos duros".
