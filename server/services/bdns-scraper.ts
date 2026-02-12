@@ -2,7 +2,18 @@ import puppeteer from "puppeteer";
 import { storage } from "../storage";
 
 export async function scrapeBDNS() {
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-accelerated-2d-canvas",
+      "--no-first-run",
+      "--no-zygote",
+      "--disable-gpu",
+    ],
+  });
   const page = await browser.newPage();
 
   try {

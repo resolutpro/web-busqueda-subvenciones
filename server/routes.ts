@@ -1,13 +1,18 @@
 import type { Express } from "express";
 import type { Server } from "http";
-import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
+import {
+  setupAuth,
+  registerAuthRoutes,
+  isAuthenticated,
+} from "./replit_integrations/auth";
 import { storage } from "./storage";
 import { api, errorSchemas } from "@shared/routes";
 import { z } from "zod";
+import { scrapeBDNS } from "./services/bdns-scraper";
 
 export async function registerRoutes(
   httpServer: Server,
-  app: Express
+  app: Express,
 ): Promise<Server> {
   // 1. Setup Auth
   await setupAuth(app);
@@ -20,32 +25,38 @@ export async function registerRoutes(
     res.json(company || null);
   });
 
-  app.post(api.companies.create.path, isAuthenticated, async (req: any, res) => {
-    try {
-      const input = api.companies.create.input.parse(req.body);
-      // Ensure userId matches auth
-      const company = await storage.createCompany({
-        ...input,
-        userId: req.user.claims.sub
-      });
-      res.status(201).json(company);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
+  app.post(
+    api.companies.create.path,
+    isAuthenticated,
+    async (req: any, res) => {
+      try {
+        const input = api.companies.create.input.parse(req.body);
+        // Ensure userId matches auth
+        const company = await storage.createCompany({
+          ...input,
+          userId: req.user.claims.sub,
+        });
+        res.status(201).json(company);
+      } catch (err) {
+        if (err instanceof z.ZodError) {
+          return res.status(400).json({ message: err.errors[0].message });
+        }
+        throw err;
       }
-      throw err;
-    }
-  });
+    },
+  );
 
   app.put(api.companies.update.path, isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       const input = api.companies.update.input.parse(req.body);
-      
+
       // Verify ownership
       const existing = await storage.getCompany(req.user.claims.sub);
       if (!existing || existing.id !== id) {
-         return res.status(404).json({ message: "Company not found or unauthorized" });
+        return res
+          .status(404)
+          .json({ message: "Company not found or unauthorized" });
       }
 
       const updated = await storage.updateCompany(id, input);
@@ -64,9 +75,11 @@ export async function registerRoutes(
       const params = {
         search: req.query.search as string,
         scope: req.query.scope as string,
-        minAmount: req.query.minAmount ? Number(req.query.minAmount) : undefined
+        minAmount: req.query.minAmount
+          ? Number(req.query.minAmount)
+          : undefined,
       };
-      
+
       const userId = req.user.claims.sub;
       const company = await storage.getCompany(userId);
       const grants = await storage.getGrants(params);
@@ -75,17 +88,19 @@ export async function registerRoutes(
       let results = grants;
       if (company) {
         const matches = await storage.getMatches(company.id);
-        const matchMap = new Map(matches.map(m => [m.grantId, m]));
-        
-        results = grants.map(g => ({
-          ...g,
-          match: matchMap.get(g.id)
-        })).sort((a: any, b: any) => {
-          // Sort by match score if available
-          const scoreA = a.match?.score || 0;
-          const scoreB = b.match?.score || 0;
-          return scoreB - scoreA;
-        });
+        const matchMap = new Map(matches.map((m) => [m.grantId, m]));
+
+        results = grants
+          .map((g) => ({
+            ...g,
+            match: matchMap.get(g.id),
+          }))
+          .sort((a: any, b: any) => {
+            // Sort by match score if available
+            const scoreA = a.match?.score || 0;
+            const scoreB = b.match?.score || 0;
+            return scoreB - scoreA;
+          });
       }
 
       res.json(results);
@@ -103,7 +118,7 @@ export async function registerRoutes(
     const userId = req.user.claims.sub;
     const company = await storage.getCompany(userId);
     let result: any = grant;
-    
+
     if (company) {
       const match = await storage.getMatch(company.id, grant.id);
       result = { ...grant, match };
@@ -120,6 +135,17 @@ export async function registerRoutes(
 
     const matches = await storage.getMatches(company.id);
     res.json(matches);
+  });
+  //subvenciones
+  app.post("/api/grants/scrape", isAuthenticated, async (req: any, res) => {
+    try {
+      // Iniciamos el scraping (puede ser asíncrono)
+      await scrapeBDNS();
+      res.json({ message: "Sincronización completada con éxito" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Error al sincronizar con BDNS" });
+    }
   });
 
   return httpServer;
