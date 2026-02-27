@@ -1,54 +1,64 @@
 import puppeteer from "puppeteer";
 import { storage } from "../storage";
+import { execSync } from "child_process"; //
 
 export async function scrapeBDNS() {
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-accelerated-2d-canvas",
-      "--no-first-run",
-      "--no-zygote",
-      "--disable-gpu",
-    ],
-  });
-  const page = await browser.newPage();
+  console.log("🚀 Iniciando scraping BDNS...");
 
   try {
-    // Navegación a la base de datos nacional
-    await page.goto(
-      "https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias",
-      {
-        waitUntil: "networkidle2",
-      },
-    );
+    // 1. Intentar obtener la ruta de Chromium directamente del sistema
+    let chromiumPath = "";
+    try {
+      // Ejecutamos 'which chromium' igual que lo hiciste en la consola
+      chromiumPath = execSync("which chromium").toString().trim();
+      console.log(`📍 Chromium detectado en sistema: ${chromiumPath}`);
+    } catch (e) {
+      console.error("⚠️ 'which chromium' falló en Node, probando fallback...");
+      chromiumPath = "chromium"; // Fallback: confiar en el PATH
+    }
 
-    // 1. Aquí iría la lógica para interactuar con los filtros (fecha, ámbito, etc.)
-    // 2. Extracción de las filas de la tabla de resultados
-
-    const convocatorias = await page.evaluate(() => {
-      // Lógica de selector DOM para extraer:
-      // ID BDNS, Título, Organismo, Importe, Fecha Fin
-      return []; // Array de objetos extraídos
+    // 2. Configuración de lanzamiento optimizada para Replit
+    const browser = await puppeteer.launch({
+      headless: true,
+      executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
+      args: [
+        '--no-sandbox',             // Requerido en entornos containerizados
+        '--disable-setuid-sandbox', // Requerido en entornos containerizados
+        '--disable-dev-shm-usage',  // Evita errores de memoria compartida
+        '--disable-gpu',
+        '--single-process',         // Ahorra recursos
+        '--no-zygote'
+      ]
     });
 
-    for (const conv of convocatorias) {
-      await storage.upsertGrant({
-        bdnsId: conv.id,
-        title: conv.titulo,
-        organismo: conv.organismo,
-        scope: "Nacional", // O detectar según el organismo
-        endDate: new Date(conv.fechaFin),
-        budget: conv.importe,
-        rawText: conv.descripcion,
-        tags: [], // Lógica opcional para generar tags mediante IA más tarde
+    console.log("✅ Navegador lanzado correctamente.");
+
+    // ... Resto de tu lógica de navegación ...
+    const page = await browser.newPage();
+
+    try {
+      await page.goto(
+        "https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias",
+        { waitUntil: "networkidle2", timeout: 60000 }
+      );
+      console.log("📄 Página cargada.");
+
+      // Aquí va tu lógica de extracción (puedes copiar la que tenías)
+      const convocatorias = await page.evaluate(() => {
+        return []; 
       });
+
+      // Ejemplo de guardado (vacío por ahora)
+      console.log(`🔍 Encontradas ${convocatorias.length} convocatorias.`);
+
+    } catch (pageError) {
+      console.error("❌ Error navegando en la página:", pageError);
+    } finally {
+      await browser.close();
     }
+
   } catch (error) {
-    console.error("Error en el scraping de BDNS:", error);
-  } finally {
-    await browser.close();
+    console.error("💀 Error CRÍTICO al lanzar Puppeteer:");
+    console.error(error);
   }
 }
