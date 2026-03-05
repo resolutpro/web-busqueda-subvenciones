@@ -18,6 +18,26 @@ export * from "./models/auth";
 
 // === TABLE DEFINITIONS ===
 
+export const bdnsGrants = pgTable("bdns_grants", {
+  id: serial("id").primaryKey(),
+  codigoBDNS: text("codigo_bdns").unique().notNull(),
+  titulo: text("titulo").notNull(),
+  organoConvocante: text("organo_convocante"),
+  fechaRegistro: timestamp("fecha_registro"),
+  urlDetalle: text("url_detalle"),
+  detallesExtraidos: jsonb("detalles_extraidos"), // Presupuesto, base reguladora, etc.
+  iaAnalisis: jsonb("ia_analisis"), // Guardamos por qué la IA dijo que cuadraba
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Tabla para guardar configuraciones/estado del sistema (ej. el último código escrapeado)
+export const scrapingState = pgTable("scraping_state", {
+  id: serial("id").primaryKey(),
+  key: text("key").unique().notNull(), // Ejemplo: 'highest_bdns_code'
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id")
