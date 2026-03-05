@@ -9,6 +9,9 @@ import { storage } from "./storage";
 import { api, errorSchemas } from "@shared/routes";
 import { z } from "zod";
 import { scrapeBDNS } from "./services/bdns-scraper";
+import { bdnsGrants } from "../shared/schema";
+import { eq, desc } from "drizzle-orm";
+import { db } from "./db";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -145,6 +148,42 @@ export async function registerRoutes(
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Error al sincronizar con BDNS" });
+    }
+  });
+
+  // Obtener todas las subvenciones BDNS guardadas (que cuadraron)
+  app.get("/api/bdns-grants", async (req, res) => {
+    try {
+      const grants = await db.query.bdnsGrants.findMany({
+        orderBy: [desc(bdnsGrants.fechaRegistro)],
+      });
+      res.json(grants);
+    } catch (error) {
+      console.error("Error fetching BDNS grants:", error);
+      res.status(500).json({ message: "Error al obtener las subvenciones" });
+    }
+  });
+
+  // Obtener el detalle de una subvención BDNS específica
+  app.get("/api/bdns-grants/:id", async (req, res) => {
+    try {
+      const grant = await db.query.bdnsGrants.findFirst({
+        where: eq(bdnsGrants.id, parseInt(req.params.id)),
+      });
+      if (!grant) return res.status(404).json({ message: "No encontrada" });
+      res.json(grant);
+    } catch (error) {
+      res.status(500).json({ message: "Error al obtener la subvención" });
+    }
+  });
+
+  // Borrar (descartar) una subvención BDNS
+  app.delete("/api/bdns-grants/:id", async (req, res) => {
+    try {
+      await db.delete(bdnsGrants).where(eq(bdnsGrants.id, parseInt(req.params.id)));
+      res.status(200).json({ message: "Descartada correctamente" });
+    } catch (error) {
+      res.status(500).json({ message: "Error al descartar la subvención" });
     }
   });
 

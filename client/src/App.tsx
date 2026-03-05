@@ -13,6 +13,8 @@ import GrantsListPage from "@/pages/grants-list";
 import GrantDetailPage from "@/pages/grant-detail";
 import CompanyProfilePage from "@/pages/company-profile";
 import NotFound from "@/pages/not-found";
+import BdnsGrantDetail from "./pages/bdns-grant-detail";
+
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading: authLoading } = useAuth();
@@ -81,6 +83,9 @@ function Router() {
          {/* Reusing GrantsList for now, ideally pass a prop or use a separate page */}
          <ProtectedRoute component={GrantsListPage} />
       </Route>
+       <Route path="/bdns-grants/:id">
+          <ProtectedRoute component={BdnsGrantDetail} />
+        </Route>
 
       {/* Fallback */}
       <Route component={NotFound} />
