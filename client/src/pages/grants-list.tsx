@@ -2,7 +2,6 @@ import { useState } from "react";
 import { LayoutShell } from "@/components/layout-shell";
 import { useGrants } from "@/hooks/use-grants";
 import { Input } from "@/components/ui/input";
-import { RefreshCw, Trash2, CheckCircle } from "lucide-react"; 
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -11,14 +10,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { MatchScoreBadge } from "@/components/match-score-badge";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
-import {
-  Search,
-  Filter,
-  CalendarDays,
-  Euro,
-  Building,
-  ChevronRight,
-} from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -28,6 +19,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Search,
+  Filter,
+  CalendarDays,
+  Euro,
+  Building,
+  ChevronRight,
+  RefreshCw,
+  Trash2,
+  CheckCircle
+} from "lucide-react";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 
 export default function GrantsListPage() {
   const [search, setSearch] = useState("");
@@ -48,8 +52,23 @@ export default function GrantsListPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // 3. Subvenciones obtenidas mediante Scraping BOE
+  // Query para obtener el estado del BOE
+  const { data: boeState } = useQuery({
+    queryKey: ["/api/scraping-state/boe"],
+  });
+
+  // Query para obtener los registros del BOE
+  const { data: boeGrants, isLoading: loadingBoe } = useQuery({
+    queryKey: ["/api/boe-grants"],
+  });
+
+  const lastSyncDate = boeState?.lastSync 
+    ? format(new Date(boeState.lastSync), "dd/MM/yyyy HH:mm", { locale: es }) 
+    : "Nunca";
+
   // --- MUTATIONS ---
-  // Sincronizar (Scraping manual)
+  // Sincronizar (Scraping manual BDNS)
   const scrapeMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("POST", "/api/grants/scrape");
@@ -85,10 +104,36 @@ export default function GrantsListPage() {
     },
   });
 
+  // Sincronizar BOE
+  const syncBoeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/scrape/boe");
+      return res.json();
+    },
+    onSuccess: () => {
+      // Esto recarga las listas automáticamente para mostrar los datos nuevos
+      queryClient.invalidateQueries({ queryKey: ["/api/boe-grants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/scraping-state/boe"] });
+      toast({
+        title: "¡BOE Sincronizado!",
+        description: "Se han buscado y analizado los últimos anuncios.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Hubo un problema al sincronizar con el BOE.",
+        variant: "destructive",
+      });
+    },
+  });
+
   return (
     <LayoutShell>
-      <div className="space-y-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="container mx-auto p-6">
+
+        {/* --- HEADER --- */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-display font-bold text-slate-900">
               Oportunidades de Subvención
@@ -98,22 +143,32 @@ export default function GrantsListPage() {
             </p>
           </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => scrapeMutation.mutate()}
-            disabled={scrapeMutation.isPending}
-            className="flex items-center gap-2 border-blue-200 hover:bg-blue-50 text-blue-700"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${scrapeMutation.isPending ? "animate-spin" : ""}`}
-            />
-            {scrapeMutation.isPending ? "Buscando en BDNS..." : "Explorar BDNS"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => scrapeMutation.mutate()}
+              disabled={scrapeMutation.isPending}
+              className="flex items-center gap-2 border-blue-200 hover:bg-blue-50 text-blue-700"
+            >
+              <RefreshCw className={`h-4 w-4 ${scrapeMutation.isPending ? "animate-spin" : ""}`} />
+              {scrapeMutation.isPending ? "Buscando en BDNS..." : "Explorar BDNS"}
+            </Button>
+
+            <Button 
+              onClick={() => syncBoeMutation.mutate()} 
+              disabled={syncBoeMutation.isPending}
+              variant="outline"
+              size="sm"
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${syncBoeMutation.isPending ? 'animate-spin' : ''}`} />
+              {syncBoeMutation.isPending ? "Analizando BOE..." : "Sincronizar BOE"}
+            </Button>
+          </div>
         </div>
 
-        {/* Filters */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4">
+        {/* --- FILTERS --- */}
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 mb-6">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
             <Input
@@ -139,7 +194,7 @@ export default function GrantsListPage() {
           </div>
         </div>
 
-        {/* TABS PARA SEPARAR SISTEMA Y BDNS */}
+        {/* --- TABS PESTAÑAS --- */}
         <Tabs defaultValue="system" className="w-full">
           <TabsList className="mb-6 bg-slate-100 p-1 rounded-lg">
             <TabsTrigger value="system" className="rounded-md">Catálogo General</TabsTrigger>
@@ -149,6 +204,7 @@ export default function GrantsListPage() {
                 <span className="bg-blue-600 text-white text-[10px] px-2 py-0.5 rounded-full">{bdnsGrants.length}</span>
               )}
             </TabsTrigger>
+            <TabsTrigger value="boe" className="rounded-md">BOE</TabsTrigger>
           </TabsList>
 
           {/* ==============================================
@@ -323,6 +379,74 @@ export default function GrantsListPage() {
                    </Card>
                  ))}
                </div>
+            )}
+          </TabsContent>
+
+          {/* ==============================================
+              CONTENIDO 3: SUBVENCIONES BOE (IA)
+              ============================================== */}
+          <TabsContent value="boe">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-slate-900">Anuncios del BOE Filtrados por IA</h2>
+              <Badge variant="outline" className="text-sm">
+                Última actualización: {lastSyncDate}
+              </Badge>
+            </div>
+
+            {loadingBoe ? (
+              <div className="flex justify-center p-12 text-slate-500">Cargando anuncios del BOE...</div>
+            ) : boeGrants?.length === 0 ? (
+              <Card>
+                <CardContent className="p-12 text-center text-muted-foreground">
+                  <div className="h-12 w-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-400">
+                    <CheckCircle className="h-6 w-6" />
+                  </div>
+                  No hay anuncios del BOE relevantes en la base de datos ahora mismo.
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4">
+                {boeGrants?.map((grant: any) => (
+                  <Card key={grant.id} className="hover:shadow-md transition-all">
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <Badge className="mb-2 bg-slate-100 text-slate-800 hover:bg-slate-200 border-none">{grant.identificador}</Badge>
+                          <CardTitle className="text-lg leading-tight">{grant.titulo}</CardTitle>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-slate-500 mb-4">
+                        <Building className="inline-block mr-1.5 h-4 w-4 text-slate-400" />
+                        {grant.departamento}
+                      </p>
+
+                      {grant.aiAnalysis?.razon && (
+                        <div className="mb-4 text-sm text-green-800 bg-green-50/50 p-3 rounded-md border border-green-100">
+                          <strong className="flex items-center gap-1 mb-1 text-green-700">
+                            <CheckCircle className="h-4 w-4" /> Por qué te interesa (IA):
+                          </strong>
+                          <span className="text-xs leading-snug">{grant.aiAnalysis.razon}</span>
+                        </div>
+                      )}
+
+                      <div className="flex gap-4 pt-2 border-t border-slate-50">
+                        {grant.urlPdf && (
+                          <a href={grant.urlPdf} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 font-medium">
+                            Ver PDF Oficial
+                          </a>
+                        )}
+                        {grant.urlHtml && (
+                          <a href={grant.urlHtml} target="_blank" rel="noopener noreferrer" className="text-sm text-slate-600 hover:text-slate-900 hover:underline flex items-center gap-1 font-medium">
+                            Ver versión web
+                          </a>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             )}
           </TabsContent>
         </Tabs>

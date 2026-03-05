@@ -3,6 +3,10 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
+// Importamos node-cron y tu función del BOE
+import cron from "node-cron";
+import { fetchDailyBOE } from "./services/boe-scraper";
+
 const app = express();
 const httpServer = createServer(app);
 
@@ -62,6 +66,22 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
 
+  // === CONFIGURACIÓN DEL CRON JOB ===
+  cron.schedule("0 8 * * *", async () => {
+    log("⏰ [CRON] Iniciando la descarga diaria del BOE...", "cron");
+    try {
+      await fetchDailyBOE();
+      log("✅ [CRON] Descarga y procesamiento del BOE completado con éxito.", "cron");
+    } catch (error) {
+      log(`❌ [CRON] Error procesando el BOE: ${error}`, "cron");
+    }
+  }, {
+    timezone: "Europe/Madrid"
+  });
+
+  log("📅 Cron job del BOE programado para las 08:00 AM (Europe/Madrid).", "cron");
+  // ===================================
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -86,9 +106,6 @@ app.use((req, res, next) => {
   }
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {

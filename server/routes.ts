@@ -9,9 +9,10 @@ import { storage } from "./storage";
 import { api, errorSchemas } from "@shared/routes";
 import { z } from "zod";
 import { scrapeBDNS } from "./services/bdns-scraper";
-import { bdnsGrants } from "../shared/schema";
+import { bdnsGrants, boeGrants, scrapingState } from "../shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { db } from "./db";
+
 
 export async function registerRoutes(
   httpServer: Server,
@@ -184,6 +185,35 @@ export async function registerRoutes(
       res.status(200).json({ message: "Descartada correctamente" });
     } catch (error) {
       res.status(500).json({ message: "Error al descartar la subvención" });
+    }
+  });
+
+  app.get("/api/boe-grants", async (req, res) => {
+    try {
+      const grants = await db.select().from(boeGrants).orderBy(desc(boeGrants.createdAt)).limit(50);
+      res.json(grants);
+    } catch (error) {
+      res.status(500).json({ error: "Error fetching BOE grants" });
+    }
+  });
+
+  app.get("/api/scraping-state/boe", async (req, res) => {
+    try {
+      const state = await db.select().from(scrapingState).where(eq(scrapingState.key, 'last_boe_sync')).limit(1);
+      res.json({ lastSync: state[0]?.value || null });
+    } catch (error) {
+      res.status(500).json({ error: "Error fetching sync state" });
+    }
+  });
+
+  app.post("/api/scrape/boe", async (req, res) => {
+    try {
+      // Llamamos a la misma función que usa el Cron Job
+      await fetchDailyBOE();
+      res.json({ message: "Sincronización del BOE completada con éxito" });
+    } catch (error) {
+      console.error("Error en sincronización manual del BOE:", error);
+      res.status(500).json({ error: "Ocurrió un error al sincronizar el BOE" });
     }
   });
 

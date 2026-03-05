@@ -18,6 +18,19 @@ export * from "./models/auth";
 
 // === TABLE DEFINITIONS ===
 
+
+export const boeGrants = pgTable("boe_grants", {
+  id: serial("id").primaryKey(),
+  identificador: text("identificador").unique().notNull(), // Equivalente al CVE (ej. BOE-B-2024-12345)
+  titulo: text("titulo").notNull(),
+  departamento: text("departamento"),
+  fechaPublicacion: timestamp("fecha_publicacion"),
+  urlPdf: text("url_pdf"),
+  urlHtml: text("url_html"),
+  aiAnalysis: jsonb("ia_analisis"), // Guardamos el análisis/filtro de la IA
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const bdnsGrants = pgTable("bdns_grants", {
   id: serial("id").primaryKey(),
   codigoBDNS: text("codigo_bdns").unique().notNull(),
@@ -122,7 +135,16 @@ export const insertMatchSchema = createInsertSchema(matches).omit({
   createdAt: true,
 });
 
+export const insertBoeGrantSchema = createInsertSchema(boeGrants).omit({
+  id: true,
+  createdAt: true,
+});
+
+
 // === TYPES ===
+
+export type BoeGrant = typeof boeGrants.$inferSelect;
+export type InsertBoeGrant = z.infer<typeof insertBoeGrantSchema>;
 
 export type Company = typeof companies.$inferSelect;
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
