@@ -12,6 +12,7 @@ import { scrapeBDNS } from "./services/bdns-scraper";
 import { bdnsGrants, boeGrants, scrapingState } from "../shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { db } from "./db";
+import { fetchDailyBOE } from "./services/boe-scraper";
 
 
 export async function registerRoutes(
