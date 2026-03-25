@@ -18,6 +18,17 @@ export * from "./models/auth";
 
 // === TABLE DEFINITIONS ===
 
+export const tedGrants = pgTable("ted_grants", {
+  id: serial("id").primaryKey(),
+  identificador: text("identificador").unique().notNull(), // Ej: Número de aviso de TED
+  titulo: text("titulo").notNull(),
+  pais: text("pais"),
+  fechaPublicacion: timestamp("fecha_publicacion"),
+  urlDetalle: text("url_detalle"),
+  detallesExtraidos: jsonb("detalles_extraidos"), // Para guardar presupuesto, CPV, etc.
+  aiAnalysis: jsonb("ia_analisis"), // El veredicto de la IA
+  createdAt: timestamp("created_at").defaultNow(),
+});
 
 export const boeGrants = pgTable("boe_grants", {
   id: serial("id").primaryKey(),
@@ -118,6 +129,10 @@ export const matchesRelations = relations(matches, ({ one }) => ({
 }));
 
 // === SCHEMAS ===
+export const insertTedGrantSchema = createInsertSchema(tedGrants).omit({
+  id: true,
+  createdAt: true,
+});
 
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
@@ -142,6 +157,8 @@ export const insertBoeGrantSchema = createInsertSchema(boeGrants).omit({
 
 
 // === TYPES ===
+export type TedGrant = typeof tedGrants.$inferSelect;
+export type InsertTedGrant = z.infer<typeof insertTedGrantSchema>;
 
 export type BoeGrant = typeof boeGrants.$inferSelect;
 export type InsertBoeGrant = z.infer<typeof insertBoeGrantSchema>;

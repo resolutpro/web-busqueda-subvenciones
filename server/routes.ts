@@ -9,11 +9,11 @@ import { storage } from "./storage";
 import { api, errorSchemas } from "@shared/routes";
 import { z } from "zod";
 import { scrapeBDNS } from "./services/bdns-scraper";
-import { bdnsGrants, boeGrants, scrapingState } from "../shared/schema";
+import { bdnsGrants, boeGrants, scrapingState,tedGrants} from "../shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { db } from "./db";
 import { fetchDailyBOE } from "./services/boe-scraper";
-
+import { fetchTEDGrants } from "./services/ted-scraper";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -215,6 +215,44 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error en sincronización manual del BOE:", error);
       res.status(500).json({ error: "Ocurrió un error al sincronizar el BOE" });
+    }
+  });
+
+  // --- RUTAS PARA TED (EUROPA) ---
+  app.get("/api/ted-grants", async (req, res) => {
+    try {
+      const grants = await db.select().from(tedGrants).orderBy(desc(tedGrants.createdAt)).limit(50);
+      res.json(grants);
+    } catch (error) {
+      res.status(500).json({ error: "Error fetching TED grants" });
+    }
+  });
+
+  app.get("/api/scraping-state/ted", async (req, res) => {
+    try {
+      const state = await db.select().from(scrapingState).where(eq(scrapingState.key, 'last_ted_sync')).limit(1);
+      res.json({ lastSync: state[0]?.value || null });
+    } catch (error) {
+      res.status(500).json({ error: "Error fetching TED sync state" });
+    }
+  });
+
+  app.post("/api/scrape/ted", isAuthenticated, async (req, res) => {
+    try {
+      await fetchTEDGrants();
+      res.json({ message: "Sincronización con TED (Europa) completada" });
+    } catch (error) {
+      console.error("Error en sincronización manual de TED:", error);
+      res.status(500).json({ error: "Ocurrió un error al sincronizar TED" });
+    }
+  });
+
+  app.delete("/api/ted-grants/:id", async (req, res) => {
+    try {
+      await db.delete(tedGrants).where(eq(tedGrants.id, parseInt(req.params.id)));
+      res.status(200).json({ message: "Descartada correctamente" });
+    } catch (error) {
+      res.status(500).json({ message: "Error al descartar la subvención de TED" });
     }
   });
 

@@ -63,6 +63,14 @@ export default function GrantsListPage() {
     queryKey: ["/api/boe-grants"],
   });
 
+  // 4. Subvenciones obtenidas mediante la API TED
+  const { data: tedState } = useQuery({ queryKey: ["/api/scraping-state/ted"] });
+  const { data: tedGrants, isLoading: loadingTed } = useQuery({ queryKey: ["/api/ted-grants"] });
+
+  const lastTedSyncDate = tedState?.lastSync 
+    ? format(new Date(tedState.lastSync), "dd/MM/yyyy HH:mm", { locale: es }) 
+    : "Nunca";
+
   const lastSyncDate = boeState?.lastSync 
     ? format(new Date(boeState.lastSync), "dd/MM/yyyy HH:mm", { locale: es }) 
     : "Nunca";
@@ -128,6 +136,34 @@ export default function GrantsListPage() {
     },
   });
 
+  const syncTedMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/scrape/ted");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ted-grants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/scraping-state/ted"] });
+      toast({
+        title: "¡TED Sincronizado!",
+        description: "Se han buscado y analizado fondos europeos.",
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Problema al sincronizar TED.", variant: "destructive" });
+    },
+  });
+
+  const deleteTedMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await fetch(`/api/ted-grants/${id}`, { method: "DELETE" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ted-grants"] });
+      toast({ title: "Fondo europeo descartado" });
+    },
+  });
+
   return (
     <LayoutShell>
       <div className="container mx-auto p-6">
@@ -164,6 +200,18 @@ export default function GrantsListPage() {
               <RefreshCw className={`mr-2 h-4 w-4 ${syncBoeMutation.isPending ? 'animate-spin' : ''}`} />
               {syncBoeMutation.isPending ? "Analizando BOE..." : "Sincronizar BOE"}
             </Button>
+
+            <Button 
+              onClick={() => syncTedMutation.mutate()} 
+              disabled={syncTedMutation.isPending}
+              variant="outline"
+              size="sm"
+              className="border-purple-200 hover:bg-purple-50 text-purple-700"
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${syncTedMutation.isPending ? 'animate-spin' : ''}`} />
+              {syncTedMutation.isPending ? "Consultando F&T..." : "Sincronizar Europa (F&T)"}
+            </Button>
+            
           </div>
         </div>
 
@@ -205,6 +253,7 @@ export default function GrantsListPage() {
               )}
             </TabsTrigger>
             <TabsTrigger value="boe" className="rounded-md">BOE</TabsTrigger>
+            <TabsTrigger value="ted" className="rounded-md text-purple-700">Europa (F&T)</TabsTrigger>
           </TabsList>
 
           {/* ==============================================
@@ -449,7 +498,85 @@ export default function GrantsListPage() {
               </div>
             )}
           </TabsContent>
-        </Tabs>
+        
+        {/* ==============================================
+        CONTENIDO 4: SUBVENCIONES TED
+        ============================================== */}
+        <TabsContent value="ted">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-slate-900">Subvenciones Europeas (F&T) Evaluadas por IA</h2>
+            <Badge variant="outline" className="text-sm border-purple-200 text-purple-700">
+              Última actualización: {lastTedSyncDate}
+            </Badge>
+          </div>
+
+          {loadingTed ? (
+            <div className="flex justify-center p-12 text-slate-500">Cargando fondos de TED...</div>
+          ) : !tedGrants || tedGrants.length === 0 ? (
+            <Card>
+              <CardContent className="p-12 text-center text-muted-foreground">
+                <div className="h-12 w-12 bg-purple-50 rounded-full flex items-center justify-center mx-auto mb-4 text-purple-400">
+                  <CheckCircle className="h-6 w-6" />
+                </div>
+                No hay oportunidades europeas relevantes ahora mismo. Usa "Sincronizar TED".
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {tedGrants.map((grant: any) => (
+                <Card key={grant.id} className="flex flex-col border-purple-100 hover:shadow-md transition-all">
+                  <CardHeader className="pb-3">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] font-bold bg-purple-100 text-purple-800 px-2 py-1 rounded">
+                        {grant.identificador}
+                      </span>
+                      {grant.fechaPublicacion && (
+                        <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                          <CalendarDays className="h-3 w-3" />
+                          {new Date(grant.fechaPublicacion).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                    <CardTitle className="text-base leading-tight line-clamp-2">{grant.titulo}</CardTitle>
+                    <p className="text-xs text-muted-foreground line-clamp-1 mt-1 flex items-center gap-1">
+                      <Building className="h-3 w-3" /> {grant.pais || "Europa"}
+                    </p>
+                  </CardHeader>
+
+                  <CardContent className="flex-1 pb-4">
+                    {grant.aiAnalysis?.razon && (
+                      <div className="text-sm text-green-800 bg-green-50/50 p-3 rounded-md border border-green-100">
+                        <strong className="flex items-center gap-1 mb-1 text-green-700">
+                          <CheckCircle className="h-4 w-4" /> La IA opina:
+                        </strong>
+                        <span className="line-clamp-3 leading-snug text-xs">{grant.aiAnalysis.razon}</span>
+                      </div>
+                    )}
+                  </CardContent>
+
+                  <CardFooter className="flex justify-between border-t border-slate-50 pt-4 pb-4">
+                    {grant.urlDetalle && (
+                      <a href={grant.urlDetalle} target="_blank" rel="noopener noreferrer" className="text-sm text-purple-600 hover:text-purple-800 font-medium">
+                        Ver en EU Funding & Tenders Portal
+                      </a>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-400 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => {
+                        if (confirm("¿Seguro que quieres descartar este fondo?")) deleteTedMutation.mutate(grant.id);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 mr-1" /> Descartar
+                    </Button>
+                  </CardFooter>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       </div>
     </LayoutShell>

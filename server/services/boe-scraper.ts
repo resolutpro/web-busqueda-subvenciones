@@ -2,7 +2,7 @@ import { db } from "../db";
 import { boeGrants, scrapingState } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 // Asume que tienes un servicio de IA exportado
-import { checkGrantWithAI} from "./ai-evaluator"; 
+import { checkGrantWithAI, evaluateGrantRelevance } from "./ai-evaluator";
 
 export async function fetchDailyBOE() {
   const today = new Date();
