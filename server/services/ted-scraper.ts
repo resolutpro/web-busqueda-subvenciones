@@ -1,7 +1,8 @@
 import { db } from "../db";
 import { tedGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
-import { checkGrantWithAI } from "./ai-evaluator";
+// Importamos la nueva función masiva
+import { checkGrantWithAI, checkGrantForMultipleCompaniesWithAI } from "./ai-evaluator";
 
 // Función auxiliar para extraer datos seguros de la API de F&T
 function extractFTText(field: any, defaultValue: string = "No especificado"): string {
@@ -18,18 +19,14 @@ function extractFTText(field: any, defaultValue: string = "No especificado"): st
 export async function fetchTEDGrants() {
   console.log("\n🇪🇺 🚀 INICIANDO SINCRONIZACIÓN CON F&T (SUBVENCIONES EUROPEAS) 🚀 🇪🇺");
 
-  // 1. Obtener los requisitos de la empresa para la IA
-  const empresa = await db.query.companies.findFirst();
-  let misRequisitos = "Soy una empresa que busca subvenciones y ayudas a fondo perdido de Europa.";
-  if (empresa) {
-    misRequisitos = `Soy una empresa llamada "${empresa.name}". 
-    Tamaño: ${empresa.size || 'No definido'}. 
-    Ubicación: ${empresa.location || 'No definida'}. 
-    Sector/CNAE: ${empresa.cnae || 'No definido'}. 
-    A qué me dedico: ${empresa.description}`;
-  }
+  // 1. Obtener TODAS las empresas para la evaluación masiva con IA
+  const todasLasEmpresas = await db.select().from(companies);
 
-  console.log(`📝 Requisitos cargados para la IA:\n"${misRequisitos}"`);
+  if (todasLasEmpresas.length === 0) {
+    console.log("\n⚠️ [F&T] No hay empresas registradas. Se hará scraping pero no habrá coincidencias por IA.\n");
+  } else {
+    console.log(`\n📝 [F&T] Se han cargado ${todasLasEmpresas.length} empresas para evaluación masiva.\n`);
+  }
 
   try {
     // 2. Endpoint oficial de SEDIA (Funding & Tenders)
@@ -96,11 +93,26 @@ export async function fetchTEDGrants() {
         continue;
       }
 
-      console.log(`   🤖 Evaluando compatibilidad con la IA...`);
-      const iaResult = await checkGrantWithAI(grant, misRequisitos);
+      console.log(`   🤖 Evaluando compatibilidad con la IA para múltiples empresas...`);
 
-      if (iaResult.cuadra) {
-        console.log(`   ✅ ¡CUADRA! Razón: ${iaResult.razon}`);
+      // ==========================================
+      // NUEVA LÓGICA DE CONSULTA IA MASIVA
+      // ==========================================
+      let algunaEmpresaCuadra = false;
+      let iaAnalisisMasivo: any = { evaluaciones: [] };
+
+      if (todasLasEmpresas.length > 0) {
+        iaAnalisisMasivo = await checkGrantForMultipleCompaniesWithAI(grant, todasLasEmpresas);
+
+        for (const evaluacion of iaAnalisisMasivo.evaluaciones) {
+          if (evaluacion.cuadra) {
+            algunaEmpresaCuadra = true;
+            console.log(`   ✅ ¡CUADRA para la empresa ID ${evaluacion.companyId}! Razón: ${evaluacion.razon}`);
+          }
+        }
+      }
+
+      if (algunaEmpresaCuadra) {
         try {
           await db.insert(tedGrants).values({
             identificador: grant.identificador,
@@ -109,15 +121,16 @@ export async function fetchTEDGrants() {
             fechaPublicacion: grant.fecha,
             urlDetalle: grant.url,
             detallesExtraidos: { programa: grant.cpv }, // Guardamos el programa en lugar del CPV
-            aiAnalysis: iaResult
+            aiAnalysis: iaAnalisisMasivo // Guardamos el JSON con el veredicto de todas las empresas
           });
-          console.log(`   💾 Guardada en base de datos.`);
+          console.log(`   💾 Guardada en base de datos porque cuadra con al menos una empresa.`);
         } catch (dbErr) {
           console.error("   ❌ Error guardando:", dbErr);
         }
       } else {
-        console.log(`   ❌ Descartada por la IA: ${iaResult.razon}`);
+        console.log(`   ❌ Descartada por la IA: No encaja con ninguna de las empresas registradas.`);
       }
+      // ==========================================
     }
 
     // Actualizar estado

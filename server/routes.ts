@@ -25,9 +25,14 @@ export async function registerRoutes(
 
   // 2. Company Routes
   app.get(api.companies.me.path, isAuthenticated, async (req: any, res) => {
-    const userId = req.user.claims.sub;
-    const company = await storage.getCompany(userId);
-    res.json(company || null);
+    try {
+      const userId = req.user.claims.sub;
+      const userCompanies = await storage.getCompaniesByUserId(userId);
+      res.json(userCompanies || []);
+    } catch (error) {
+      console.error("Error fetching companies:", error);
+      res.status(500).json([]);
+    }
   });
 
   app.post(
@@ -36,7 +41,6 @@ export async function registerRoutes(
     async (req: any, res) => {
       try {
         const input = api.companies.create.input.parse(req.body);
-        // Ensure userId matches auth
         const company = await storage.createCompany({
           ...input,
           userId: req.user.claims.sub,
@@ -56,9 +60,11 @@ export async function registerRoutes(
       const id = parseInt(req.params.id);
       const input = api.companies.update.input.parse(req.body);
 
-      // Verify ownership
-      const existing = await storage.getCompany(req.user.claims.sub);
-      if (!existing || existing.id !== id) {
+      // Verificamos si la empresa pertenece a este usuario buscando en todas sus empresas
+      const userCompanies = await storage.getCompaniesByUserId(req.user.claims.sub);
+      const ownsCompany = userCompanies.some(c => c.id === id);
+
+      if (!ownsCompany) {
         return res
           .status(404)
           .json({ message: "Company not found or unauthorized" });
@@ -86,14 +92,26 @@ export async function registerRoutes(
       };
 
       const userId = req.user.claims.sub;
-      const company = await storage.getCompany(userId);
+      const userCompanies = await storage.getCompaniesByUserId(userId);
       const grants = await storage.getGrants(params);
 
-      // Enhance with match info if company exists
       let results = grants;
-      if (company) {
-        const matches = await storage.getMatches(company.id);
-        const matchMap = new Map(matches.map((m) => [m.grantId, m]));
+
+      // Si el usuario tiene empresas, juntamos los matches de todas
+      if (userCompanies && userCompanies.length > 0) {
+        let allMatches: any[] = [];
+        for (const company of userCompanies) {
+          const matches = await storage.getMatches(company.id);
+          allMatches = allMatches.concat(matches);
+        }
+
+        // Quedarnos con el match de mayor puntuación para la vista principal
+        const matchMap = new Map();
+        allMatches.forEach((m) => {
+          if (!matchMap.has(m.grantId) || matchMap.get(m.grantId).score < m.score) {
+            matchMap.set(m.grantId, m);
+          }
+        });
 
         results = grants
           .map((g) => ({
@@ -101,7 +119,6 @@ export async function registerRoutes(
             match: matchMap.get(g.id),
           }))
           .sort((a: any, b: any) => {
-            // Sort by match score if available
             const scoreA = a.match?.score || 0;
             const scoreB = b.match?.score || 0;
             return scoreB - scoreA;
@@ -119,14 +136,20 @@ export async function registerRoutes(
     const grant = await storage.getGrant(id);
     if (!grant) return res.status(404).json({ message: "Grant not found" });
 
-    // Attach match info
     const userId = req.user.claims.sub;
-    const company = await storage.getCompany(userId);
+    const userCompanies = await storage.getCompaniesByUserId(userId);
     let result: any = grant;
 
-    if (company) {
-      const match = await storage.getMatch(company.id, grant.id);
-      result = { ...grant, match };
+    if (userCompanies && userCompanies.length > 0) {
+      // Buscar el mejor match para esta subvención entre todas las empresas del usuario
+      let bestMatch = null;
+      for (const company of userCompanies) {
+        const match = await storage.getMatch(company.id, grant.id);
+        if (match && (!bestMatch || match.score > bestMatch.score)) {
+          bestMatch = match;
+        }
+      }
+      result = { ...grant, match: bestMatch };
     }
 
     res.json(result);
@@ -135,16 +158,23 @@ export async function registerRoutes(
   // 4. Matches Routes
   app.get(api.matches.list.path, isAuthenticated, async (req: any, res) => {
     const userId = req.user.claims.sub;
-    const company = await storage.getCompany(userId);
-    if (!company) return res.json([]);
+    const userCompanies = await storage.getCompaniesByUserId(userId);
+    if (!userCompanies || userCompanies.length === 0) return res.json([]);
 
-    const matches = await storage.getMatches(company.id);
-    res.json(matches);
+    let allMatches: any[] = [];
+    for (const company of userCompanies) {
+      const matches = await storage.getMatches(company.id);
+      allMatches = allMatches.concat(matches);
+    }
+
+    // Ordenar globalmente por la puntuación más alta
+    allMatches.sort((a, b) => b.score - a.score);
+    res.json(allMatches);
   });
+
   //subvenciones
   app.post("/api/grants/scrape", isAuthenticated, async (req: any, res) => {
     try {
-      // Iniciamos el scraping (puede ser asíncrono)
       await scrapeBDNS();
       res.json({ message: "Sincronización completada con éxito" });
     } catch (err) {
@@ -153,7 +183,6 @@ export async function registerRoutes(
     }
   });
 
-  // Obtener todas las subvenciones BDNS guardadas (que cuadraron)
   app.get("/api/bdns-grants", async (req, res) => {
     try {
       const grants = await db.query.bdnsGrants.findMany({
@@ -166,7 +195,6 @@ export async function registerRoutes(
     }
   });
 
-  // Obtener el detalle de una subvención BDNS específica
   app.get("/api/bdns-grants/:id", async (req, res) => {
     try {
       const grant = await db.query.bdnsGrants.findFirst({
@@ -179,7 +207,6 @@ export async function registerRoutes(
     }
   });
 
-  // Borrar (descartar) una subvención BDNS
   app.delete("/api/bdns-grants/:id", async (req, res) => {
     try {
       await db.delete(bdnsGrants).where(eq(bdnsGrants.id, parseInt(req.params.id)));
@@ -209,7 +236,6 @@ export async function registerRoutes(
 
   app.post("/api/scrape/boe", async (req, res) => {
     try {
-      // Llamamos a la misma función que usa el Cron Job
       await fetchDailyBOE();
       res.json({ message: "Sincronización del BOE completada con éxito" });
     } catch (error) {

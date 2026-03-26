@@ -30,7 +30,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { name: 'Panel de Control', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Oportunidades', href: '/grants', icon: Files },
     { name: 'Guardadas', href: '/saved', icon: BookMarked },
-    { name: 'Perfil de Empresa', href: '/profile', icon: Briefcase },
+    { name: 'Perfiles de Empresas', href: '/profile', icon: Briefcase },
   ];
 
   const handleLogout = () => {
@@ -57,7 +57,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
             <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-xl">
               S
             </div>
-            <span className="font-display font-bold text-xl text-slate-900 tracking-tight">SubvenciónMatch</span>
+            <span className="font-display font-bold text-xl text-slate-900 tracking-tight">Detección de Subvenciones</span>
           </div>
           <button 
             className="ml-auto lg:hidden text-slate-500"

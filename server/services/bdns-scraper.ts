@@ -3,7 +3,8 @@ import { execSync } from "child_process";
 import { db } from "../db"; 
 import { bdnsGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
-import { checkGrantWithAI } from "./ai-evaluator";
+// Asegúrate de importar la nueva función que creaste
+import { checkGrantWithAI, checkGrantForMultipleCompaniesWithAI } from "./ai-evaluator";
 
 // Auxiliar para parsear fechas DD/MM/YYYY
 function parseBDNSDate(dateStr: string) {
@@ -25,21 +26,14 @@ export async function scrapeBDNS() {
   const oneYearAgo = new Date();
   oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
-  // 2. OBTENER REQUISITOS DESDE LA TABLA 'companies' (Guardado en /profile)
-  // Para el scraper general, usamos el primer perfil configurado. 
-  // (Si fuera multitenant, habría que cruzar cada subvención con todas las empresas)
-  const empresa = await db.query.companies.findFirst();
-  let misRequisitos = "Soy una empresa que busca subvenciones."; // Fallback
+  // 2. OBTENER TODAS LAS EMPRESAS PARA EVALUACIÓN MASIVA
+  const todasLasEmpresas = await db.select().from(companies);
 
-  if (empresa) {
-    misRequisitos = `Soy una empresa llamada "${empresa.name}". 
-    Tamaño: ${empresa.size || 'No definido'}. 
-    Ubicación: ${empresa.location || 'No definida'}. 
-    Sector/CNAE: ${empresa.cnae || 'No definido'}. 
-    A qué me dedico y mis objetivos: ${empresa.description}`;
+  if (todasLasEmpresas.length === 0) {
+    console.log("\n⚠️ No hay empresas registradas. Se hará scraping pero no se encontrarán coincidencias por IA.\n");
+  } else {
+    console.log(`\n📝 Se han cargado ${todasLasEmpresas.length} empresas para evaluación masiva con IA.\n`);
   }
-
-  console.log(`\n📝 Requisitos cargados para la IA:\n"${misRequisitos}"\n`);
 
   try {
     let chromiumPath = "";
@@ -161,12 +155,30 @@ export async function scrapeBDNS() {
             const detallesExtraidos = await detailPage.evaluate(scriptDetalle);
             const infoCompleta = { ...convocatoria, ...detallesExtraidos };
 
-            // CONSULTA IA
-            const iaResult = await checkGrantWithAI(infoCompleta, misRequisitos);
+            // ==========================================
+            // NUEVA LÓGICA DE CONSULTA IA MASIVA
+            // ==========================================
+            let algunaEmpresaCuadra = false;
+            let iaAnalisisMasivo: any = { evaluaciones: [] };
 
-            if (iaResult.cuadra) {
-              console.log(`   ✅ ¡CUADRA! Guardando: ${convocatoria.codigoBDNS}`);
+            if (todasLasEmpresas.length > 0) {
+              iaAnalisisMasivo = await checkGrantForMultipleCompaniesWithAI(infoCompleta, todasLasEmpresas);
+
+              for (const evaluacion of iaAnalisisMasivo.evaluaciones) {
+                if (evaluacion.cuadra) {
+                  algunaEmpresaCuadra = true;
+                  console.log(`   ✅ ¡CUADRA para la empresa ID ${evaluacion.companyId}! Razón: ${evaluacion.razon}`);
+                }
+              }
+            }
+
+            // Si le cuadra al menos a una empresa, guardamos la subvención en la BD
+            if (algunaEmpresaCuadra) {
+              console.log(`   💾 Guardando subvención BDNS porque cuadra con al menos una empresa: ${convocatoria.codigoBDNS}`);
               try {
+                // Si en el futuro quieres añadir inserciones a la tabla `matches`, 
+                // primero debes insertarlo en tu tabla unificada `grants` y obtener su ID.
+                // Por ahora mantenemos la inserción directa en bdnsGrants como tenías:
                 await db.insert(bdnsGrants).values({
                   codigoBDNS: convocatoria.codigoBDNS,
                   titulo: convocatoria.titulo,
@@ -174,12 +186,13 @@ export async function scrapeBDNS() {
                   fechaRegistro: currentDate,
                   urlDetalle: convocatoria.urlDetalle,
                   detallesExtraidos: detallesExtraidos, 
-                  iaAnalisis: iaResult
+                  iaAnalisis: iaAnalisisMasivo // Guardamos todo el objeto JSON con el veredicto de todas las empresas
                 });
-              } catch (dbErr) { console.error("Error DB:", dbErr); }
+              } catch (dbErr) { console.error("   ❌ Error DB al insertar BDNS:", dbErr); }
             } else {
-              console.log(`   ❌ No cuadra. Razón IA: ${iaResult.razon}`);
+              console.log(`   ❌ No cuadra para ninguna de las empresas analizadas.`);
             }
+            // ==========================================
 
           } catch (err: any) {
              console.error(`   ❌ Error detalle ${convocatoria.codigoBDNS}:`, err.message);

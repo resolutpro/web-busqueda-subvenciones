@@ -25,7 +25,7 @@ export interface IStorage {
   upsertUser(user: UpsertUser): Promise<User>;
 
   // Company
-  getCompany(userId: string): Promise<Company | undefined>;
+  getCompaniesByUserId(userId: string): Promise<Company[]>;
   createCompany(company: InsertCompany): Promise<Company>;
   updateCompany(id: number, company: Partial<InsertCompany>): Promise<Company>;
 
@@ -82,13 +82,13 @@ export class DatabaseStorage implements IStorage {
     return authStorage.upsertUser(user);
   }
 
-  // Company
-  async getCompany(userId: string): Promise<Company | undefined> {
-    const [company] = await db
+
+  // Cambiar getCompany por getCompaniesByUserId
+  async getCompaniesByUserId(userId: string): Promise<Company[]> {
+    return await db
       .select()
       .from(companies)
       .where(eq(companies.userId, userId));
-    return company;
   }
 
   async createCompany(insertCompany: InsertCompany): Promise<Company> {
