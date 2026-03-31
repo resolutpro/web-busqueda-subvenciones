@@ -1,8 +1,7 @@
 import { db } from "../db";
 import { boeGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
-// Asegúrate de importar la nueva función masiva
-import { evaluateGrantRelevance, checkGrantForMultipleCompaniesWithAI } from "./ai-evaluator";
+import { evaluateGrantRelevance, checkGrantWithAI } from "./ai-evaluator";
 
 export async function fetchDailyBOE() {
   const today = new Date();
@@ -13,11 +12,20 @@ export async function fetchDailyBOE() {
 
   // 1. Cargar todas las empresas registradas para evaluarlas de golpe
   const todasLasEmpresas = await db.select().from(companies);
+
   if (todasLasEmpresas.length === 0) {
-    console.log("\n⚠️ [BOE] No hay empresas registradas. Se procesará el BOE pero no habrá coincidencias.\n");
-  } else {
-    console.log(`\n🚀 [BOE] Iniciando scraping del BOE para ${todasLasEmpresas.length} empresas...\n`);
+    console.log("\n⚠️ [BOE] No hay empresas registradas. Deteniendo scraper para ahorrar peticiones a la IA.\n");
+    return;
   }
+
+  // 2. Preparamos el array estructurado para enviarlo a la IA
+  const arrayEmpresasIA = todasLasEmpresas.map(e => ({
+    id: e.id,
+    name: e.name,
+    description: `Tamaño: ${e.size || 'No definido'}. Ubicación: ${e.location || 'No definida'}. Sector/CNAE: ${e.cnae || 'No definido'}. Actividad: ${e.description}`
+  }));
+
+  console.log(`\n🚀 [BOE] Iniciando scraping del BOE para ${arrayEmpresasIA.length} empresas...\n`);
 
   try {
     // Petición a la API REST del BOE 
@@ -40,7 +48,6 @@ export async function fetchDailyBOE() {
     const data = json.data;
 
     // El sumario puede tener múltiples diarios (ej. si hay extraordinarios)
-    // Aseguramos que tratamos 'diario' como un array.
     const diarios = Array.isArray(data.sumario.diario) ? data.sumario.diario : [data.sumario.diario];
 
     for (const diario of diarios) {
@@ -77,8 +84,7 @@ export async function fetchDailyBOE() {
 
           // --------------------------------------------------------------------------------
           // PASO 1: Filtrado General (Ahorro de tokens)
-          // Solo preguntamos si el título parece una subvención o ayuda en general, 
-          // descartando notificaciones de multas, embargos, etc.
+          // Descartamos notificaciones de multas, embargos, etc.
           // --------------------------------------------------------------------------------
           const aiResult = await evaluateGrantRelevance(titulo, "Anuncio BOE");
 
@@ -88,27 +94,29 @@ export async function fetchDailyBOE() {
 
             // --------------------------------------------------------------------------------
             // PASO 2: Consulta Masiva (Multi-empresa)
-            // Ya sabemos que es una ayuda. Ahora preguntamos a la IA a qué empresa le cuadra.
+            // Ya sabemos que es una ayuda. Preguntamos a la IA a qué empresa le cuadra.
             // --------------------------------------------------------------------------------
             let algunaEmpresaCuadra = false;
-            let iaAnalisisMasivo: any = { evaluaciones: [] };
 
-            if (todasLasEmpresas.length > 0) {
-              // Empaquetamos la info que tenemos para enviarla a la IA
-              const infoSubvencion = {
-                identificador,
-                titulo,
-                departamento: depto.nombre,
-                urlHtml
-              };
+            // Empaquetamos la info que tenemos para enviarla a la IA
+            const infoSubvencion = {
+              identificador,
+              titulo,
+              departamento: depto.nombre,
+              urlHtml
+            };
 
-              iaAnalisisMasivo = await checkGrantForMultipleCompaniesWithAI(infoSubvencion, todasLasEmpresas);
+            // Usamos la misma función centralizada checkGrantWithAI
+            let iaAnalisisMasivo = await checkGrantWithAI(infoSubvencion, arrayEmpresasIA);
 
-              for (const evaluacion of iaAnalisisMasivo.evaluaciones) {
-                if (evaluacion.cuadra) {
-                  algunaEmpresaCuadra = true;
-                  console.log(`   ✅ ¡CUADRA para la empresa ID ${evaluacion.companyId}! Razón: ${evaluacion.razon}`);
-                }
+            // Normalizamos el resultado por si la IA usa la key 'evaluaciones' en lugar de 'matches'
+            const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
+            iaAnalisisMasivo.matches = matchesArray; 
+
+            for (const match of matchesArray) {
+              if (match.cuadra) {
+                algunaEmpresaCuadra = true;
+                console.log(`   ✅ ¡CUADRA para la empresa: ${match.companyName || match.companyId}! Razón: ${match.razon}`);
               }
             }
 

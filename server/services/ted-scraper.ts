@@ -1,8 +1,7 @@
 import { db } from "../db";
 import { tedGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
-// Importamos la nueva función masiva
-import { checkGrantWithAI, checkGrantForMultipleCompaniesWithAI } from "./ai-evaluator";
+import { checkGrantWithAI } from "./ai-evaluator";
 
 // Función auxiliar para extraer datos seguros de la API de F&T
 function extractFTText(field: any, defaultValue: string = "No especificado"): string {
@@ -23,10 +22,18 @@ export async function fetchTEDGrants() {
   const todasLasEmpresas = await db.select().from(companies);
 
   if (todasLasEmpresas.length === 0) {
-    console.log("\n⚠️ [F&T] No hay empresas registradas. Se hará scraping pero no habrá coincidencias por IA.\n");
-  } else {
-    console.log(`\n📝 [F&T] Se han cargado ${todasLasEmpresas.length} empresas para evaluación masiva.\n`);
+    console.log("\n⚠️ [F&T] No hay empresas registradas. Deteniendo scraper para ahorrar recursos.\n");
+    return; // Early exit para no gastar peticiones en vano
   }
+
+  // Preparamos el array estructurado para la IA
+  const arrayEmpresasIA = todasLasEmpresas.map(e => ({
+    id: e.id,
+    name: e.name,
+    description: `Tamaño: ${e.size || 'No definido'}. Ubicación: ${e.location || 'No definida'}. Sector/CNAE: ${e.cnae || 'No definido'}. Actividad: ${e.description}`
+  }));
+
+  console.log(`\n📝 [F&T] Se han cargado ${arrayEmpresasIA.length} empresas para evaluación masiva.\n`);
 
   try {
     // 2. Endpoint oficial de SEDIA (Funding & Tenders)
@@ -99,16 +106,18 @@ export async function fetchTEDGrants() {
       // NUEVA LÓGICA DE CONSULTA IA MASIVA
       // ==========================================
       let algunaEmpresaCuadra = false;
-      let iaAnalisisMasivo: any = { evaluaciones: [] };
 
-      if (todasLasEmpresas.length > 0) {
-        iaAnalisisMasivo = await checkGrantForMultipleCompaniesWithAI(grant, todasLasEmpresas);
+      // Usamos la función unificada
+      let iaAnalisisMasivo = await checkGrantWithAI(grant, arrayEmpresasIA);
 
-        for (const evaluacion of iaAnalisisMasivo.evaluaciones) {
-          if (evaluacion.cuadra) {
-            algunaEmpresaCuadra = true;
-            console.log(`   ✅ ¡CUADRA para la empresa ID ${evaluacion.companyId}! Razón: ${evaluacion.razon}`);
-          }
+      // Estandarizamos el JSON para asegurarnos de que el array se llame "matches"
+      const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
+      iaAnalisisMasivo.matches = matchesArray;
+
+      for (const match of matchesArray) {
+        if (match.cuadra) {
+          algunaEmpresaCuadra = true;
+          console.log(`   ✅ ¡CUADRA para la empresa: ${match.companyName || match.companyId}! Razón: ${match.razon}`);
         }
       }
 
@@ -121,7 +130,7 @@ export async function fetchTEDGrants() {
             fechaPublicacion: grant.fecha,
             urlDetalle: grant.url,
             detallesExtraidos: { programa: grant.cpv }, // Guardamos el programa en lugar del CPV
-            aiAnalysis: iaAnalisisMasivo // Guardamos el JSON con el veredicto de todas las empresas
+            aiAnalysis: iaAnalisisMasivo // Guardamos el JSON con el veredicto normalizado de todas las empresas
           });
           console.log(`   💾 Guardada en base de datos porque cuadra con al menos una empresa.`);
         } catch (dbErr) {

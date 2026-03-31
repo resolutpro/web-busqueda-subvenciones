@@ -3,8 +3,7 @@ import { execSync } from "child_process";
 import { db } from "../db"; 
 import { bdnsGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
-// Asegúrate de importar la nueva función que creaste
-import { checkGrantWithAI, checkGrantForMultipleCompaniesWithAI } from "./ai-evaluator";
+import { checkGrantWithAI } from "./ai-evaluator";
 
 // Auxiliar para parsear fechas DD/MM/YYYY
 function parseBDNSDate(dateStr: string) {
@@ -14,7 +13,7 @@ function parseBDNSDate(dateStr: string) {
 }
 
 export async function scrapeBDNS() {
-  console.log("🚀 Iniciando scraping BDNS (Modo Paginación + Perfil Dinámico + Guardado Continuo)...");
+  console.log("🚀 Iniciando scraping BDNS (Modo Paginación + Evaluación Multi-Empresa)...");
 
   // 1. Obtener estado para saber dónde parar (Límite histórico de la última vez)
   const stateRecord = await db.query.scrapingState.findFirst({
@@ -30,10 +29,18 @@ export async function scrapeBDNS() {
   const todasLasEmpresas = await db.select().from(companies);
 
   if (todasLasEmpresas.length === 0) {
-    console.log("\n⚠️ No hay empresas registradas. Se hará scraping pero no se encontrarán coincidencias por IA.\n");
-  } else {
-    console.log(`\n📝 Se han cargado ${todasLasEmpresas.length} empresas para evaluación masiva con IA.\n`);
+    console.log("\n⚠️ [BDNS] No hay empresas registradas. Deteniendo scraper para ahorrar recursos.\n");
+    return;
   }
+
+  // Preparamos el array estructurado para la IA
+  const arrayEmpresasIA = todasLasEmpresas.map(e => ({
+    id: e.id,
+    name: e.name,
+    description: `Tamaño: ${e.size || 'No definido'}. Ubicación: ${e.location || 'No definida'}. Sector/CNAE: ${e.cnae || 'No definido'}. Actividad: ${e.description}`
+  }));
+
+  console.log(`\n📝 Se han cargado ${arrayEmpresasIA.length} empresas para evaluación masiva con IA.\n`);
 
   try {
     let chromiumPath = "";
@@ -156,19 +163,20 @@ export async function scrapeBDNS() {
             const infoCompleta = { ...convocatoria, ...detallesExtraidos };
 
             // ==========================================
-            // NUEVA LÓGICA DE CONSULTA IA MASIVA
+            // LÓGICA DE CONSULTA IA MASIVA
             // ==========================================
             let algunaEmpresaCuadra = false;
-            let iaAnalisisMasivo: any = { evaluaciones: [] };
 
-            if (todasLasEmpresas.length > 0) {
-              iaAnalisisMasivo = await checkGrantForMultipleCompaniesWithAI(infoCompleta, todasLasEmpresas);
+            let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
 
-              for (const evaluacion of iaAnalisisMasivo.evaluaciones) {
-                if (evaluacion.cuadra) {
-                  algunaEmpresaCuadra = true;
-                  console.log(`   ✅ ¡CUADRA para la empresa ID ${evaluacion.companyId}! Razón: ${evaluacion.razon}`);
-                }
+            // Estandarizamos el JSON para asegurarnos de que el array se llame "matches"
+            const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
+            iaAnalisisMasivo.matches = matchesArray;
+
+            for (const match of matchesArray) {
+              if (match.cuadra) {
+                algunaEmpresaCuadra = true;
+                console.log(`   ✅ ¡CUADRA para la empresa: ${match.companyName || match.companyId}! Razón: ${match.razon}`);
               }
             }
 
@@ -176,9 +184,6 @@ export async function scrapeBDNS() {
             if (algunaEmpresaCuadra) {
               console.log(`   💾 Guardando subvención BDNS porque cuadra con al menos una empresa: ${convocatoria.codigoBDNS}`);
               try {
-                // Si en el futuro quieres añadir inserciones a la tabla `matches`, 
-                // primero debes insertarlo en tu tabla unificada `grants` y obtener su ID.
-                // Por ahora mantenemos la inserción directa en bdnsGrants como tenías:
                 await db.insert(bdnsGrants).values({
                   codigoBDNS: convocatoria.codigoBDNS,
                   titulo: convocatoria.titulo,
@@ -186,7 +191,7 @@ export async function scrapeBDNS() {
                   fechaRegistro: currentDate,
                   urlDetalle: convocatoria.urlDetalle,
                   detallesExtraidos: detallesExtraidos, 
-                  iaAnalisis: iaAnalisisMasivo // Guardamos todo el objeto JSON con el veredicto de todas las empresas
+                  iaAnalisis: iaAnalisisMasivo // Guardamos todo el objeto JSON normalizado
                 });
               } catch (dbErr) { console.error("   ❌ Error DB al insertar BDNS:", dbErr); }
             } else {

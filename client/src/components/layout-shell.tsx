@@ -9,7 +9,10 @@ import {
   LogOut, 
   Briefcase,
   Menu,
-  X
+  X,
+  Building2,
+  BookOpen,
+  Globe
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -28,9 +31,11 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   const navigation = [
     { name: 'Panel de Control', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Oportunidades', href: '/grants', icon: Files },
-    { name: 'Guardadas', href: '/saved', icon: BookMarked },
-    { name: 'Perfiles de Empresas', href: '/profile', icon: Briefcase },
+    // Eliminamos la de Guardadas y añadimos las 3 nuevas
+    { name: 'BDNS', href: '/bdns', icon: Building2 },
+    { name: 'BOE', href: '/boe', icon: BookOpen },
+    { name: 'Europa (F&T)', href: '/europa', icon: Globe },
+    { name: 'Perfil de Empresa', href: '/profile', icon: Briefcase },
   ];
 
   const handleLogout = () => {
