@@ -264,6 +264,20 @@ export async function scrapeBDNS() {
     } // Fin del bucle WHILE
 
     console.log(`\n🎉 Scraping completado. Último código verificado asegurado: ${highestCodeThisSession}`);
+
+    // NUEVO: Guardar la fecha de la última sincronización
+    try {
+      await db.insert(scrapingState)
+        .values({ key: "last_bdns_sync", value: new Date().toISOString() })
+        .onConflictDoUpdate({
+          target: scrapingState.key,
+          set: { value: new Date().toISOString(), updatedAt: new Date() }
+        });
+      console.log(`💾 Fecha de sincronización de BDNS actualizada en BD.`);
+    } catch (stateErr) {
+      console.error("❌ Error guardando last_bdns_sync:", stateErr);
+    }
+    
     await browser.close();
 
   } catch (error) {

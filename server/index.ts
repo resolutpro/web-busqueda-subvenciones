@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { scrapeBDNS } from "./services/bdns-scraper";
 
 // Importamos node-cron y tu función del BOE
 import cron from "node-cron";
@@ -75,6 +76,15 @@ app.use((req, res, next) => {
     } catch (error) {
       log(`❌ [CRON] Error procesando el BOE: ${error}`, "cron");
     }
+
+    try {
+      await scrapeBDNS();
+      log("✅ [CRON] Descarga y procesamiento de BDNS completado con éxito.", "cron");
+    } catch (error) {
+      log(`❌ [CRON] Error procesando BDNS: ${error}`, "cron");
+    }
+
+    
   }, {
     timezone: "Europe/Madrid"
   });

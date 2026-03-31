@@ -321,5 +321,14 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/scraping-state/bdns", async (req, res) => {
+    try {
+      const state = await db.select().from(scrapingState).where(eq(scrapingState.key, 'last_bdns_sync')).limit(1);
+      res.json({ lastSync: state[0]?.value || null });
+    } catch (error) {
+      res.status(500).json({ error: "Error fetching BDNS sync state" });
+    }
+  });
+
   return httpServer;
 }

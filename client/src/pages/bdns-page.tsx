@@ -13,12 +13,15 @@
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
+    const { data: syncState } = useQuery({ queryKey: ["/api/scraping-state/bdns"] });
+
     const { data: bdnsGrants, isLoading } = useQuery({ queryKey: ["/api/bdns-grants"] });
 
     const scrapeMutation = useMutation({
       mutationFn: async () => await apiRequest("POST", "/api/grants/scrape"),
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ["/api/bdns-grants"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/scraping-state/bdns"] });
         toast({ title: "Buscando en BDNS..." });
       },
     });
@@ -130,6 +133,16 @@
             <div>
               <h1 className="text-3xl font-display font-bold text-slate-900">Subvenciones BDNS</h1>
               <p className="text-slate-500">Resultados analizados por IA desde la Base de Datos Nacional de Subvenciones</p>
+              {/* NUEVO: Mostrar la fecha */}
+              {syncState?.lastSync && (
+                <p className="text-sm text-slate-500 mt-2 flex items-center gap-1 font-medium bg-slate-100 w-fit px-2 py-1 rounded-md">
+                  <CalendarDays className="h-4 w-4" />
+                  Última sincronización: {new Date(syncState.lastSync).toLocaleString("es-ES", {
+                    dateStyle: "long",
+                    timeStyle: "short"
+                  })}
+                </p>
+              )}
             </div>
             <Button onClick={() => scrapeMutation.mutate()} disabled={scrapeMutation.isPending}>
               <RefreshCw className={`mr-2 h-4 w-4 ${scrapeMutation.isPending ? "animate-spin" : ""}`} />
