@@ -135,7 +135,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
             <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-lg">
               S
             </div>
-            <span className="font-display font-bold text-lg text-slate-900">SubvenciónMatch</span>
+            <span className="font-display font-bold text-lg text-slate-900">Detección de subvenciones</span>
           </div>
           <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(true)}>
             <Menu size={24} />

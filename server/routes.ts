@@ -282,5 +282,44 @@ export async function registerRoutes(
     }
   });
 
+  // --- ACTUALIZAR ESTADO BDNS ---
+  app.patch("/api/bdns-grants/:id/status", async (req, res) => {
+    try {
+      const { status } = req.body;
+      await db.update(bdnsGrants)
+        .set({ status })
+        .where(eq(bdnsGrants.id, parseInt(req.params.id)));
+      res.status(200).json({ message: `Estado actualizado a ${status}` });
+    } catch (error) {
+      res.status(500).json({ message: "Error al actualizar estado" });
+    }
+  });
+
+  // --- ACTUALIZAR ESTADO BOE ---
+  app.patch("/api/boe-grants/:id/status", async (req, res) => {
+    try {
+      const { status } = req.body;
+      await db.update(boeGrants)
+        .set({ status })
+        .where(eq(boeGrants.id, parseInt(req.params.id)));
+      res.status(200).json({ message: `Estado actualizado a ${status}` });
+    } catch (error) {
+      res.status(500).json({ message: "Error al actualizar estado" });
+    }
+  });
+
+  // --- ACTUALIZAR ESTADO TED ---
+  app.patch("/api/ted-grants/:id/status", async (req, res) => {
+    try {
+      const { status } = req.body;
+      await db.update(tedGrants)
+        .set({ status })
+        .where(eq(tedGrants.id, parseInt(req.params.id)));
+      res.status(200).json({ message: `Estado actualizado a ${status}` });
+    } catch (error) {
+      res.status(500).json({ message: "Error al actualizar estado" });
+    }
+  });
+
   return httpServer;
 }

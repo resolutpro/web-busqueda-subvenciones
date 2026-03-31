@@ -12,7 +12,7 @@ export default function LandingPage() {
             <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-xl">
               S
             </div>
-            <span className="font-display font-bold text-xl text-slate-900">SubvenciónMatch</span>
+            <span className="font-display font-bold text-xl text-slate-900">Detección de subvenciones</span>
           </div>
           <div className="flex items-center gap-4">
             <a href="/api/login" className="text-sm font-medium text-slate-600 hover:text-primary transition-colors">
@@ -105,7 +105,7 @@ export default function LandingPage() {
       <section className="py-24 bg-slate-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-16">
-            <h2 className="text-3xl font-display font-bold text-slate-900 mb-4">¿Por qué usar SubvenciónMatch?</h2>
+            <h2 className="text-3xl font-display font-bold text-slate-900 mb-4">¿Por qué usar Detección de subvenciones?</h2>
             <p className="text-slate-600">Simplificamos el complejo mundo de la financiación pública para que puedas centrarte en hacer crecer tu negocio.</p>
           </div>
 
@@ -142,10 +142,10 @@ export default function LandingPage() {
             <div className="h-6 w-6 rounded bg-primary flex items-center justify-center text-white font-bold text-xs">
               S
             </div>
-            <span className="font-display font-bold text-lg text-slate-900">SubvenciónMatch</span>
+            <span className="font-display font-bold text-lg text-slate-900">Detección de subvenciones</span>
           </div>
           <div className="text-slate-500 text-sm">
-            © 2025 SubvenciónMatch. Todos los derechos reservados.
+            © 2026 Detección de subvenciones. Todos los derechos reservados.
           </div>
         </div>
       </footer>

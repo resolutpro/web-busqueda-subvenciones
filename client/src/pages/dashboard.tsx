@@ -1,148 +1,119 @@
-import { useCompany } from "@/hooks/use-companies";
-import { useGrants } from "@/hooks/use-grants";
 import { LayoutShell } from "@/components/layout-shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { MatchScoreBadge } from "@/components/match-score-badge";
 import { Link } from "wouter";
-import { ArrowRight, Wallet, Clock, TrendingUp, Sparkles, Building2 } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useMatches } from "@/hooks/use-matches";
+import { BookOpen, Globe, Landmark, ArrowRight, Loader2 } from "lucide-react";
 
-export default function DashboardPage() {
-  const { data: company, isLoading: loadingCompany } = useCompany();
-  const { data: grants, isLoading: loadingGrants } = useGrants();
-  const { data: matches, isLoading: loadingMatches } = useMatches();
+export default function Dashboard() {
+  // Obtenemos los datos de las tres fuentes
+  const { data: bdnsGrants, isLoading: isLoadingBdns } = useQuery({ queryKey: ["/api/bdns-grants"] });
+  const { data: boeGrants, isLoading: isLoadingBoe } = useQuery({ queryKey: ["/api/boe-grants"] });
+  const { data: tedGrants, isLoading: isLoadingTed } = useQuery({ queryKey: ["/api/ted-grants"] });
 
-  if (loadingCompany || loadingGrants || loadingMatches) {
-    return (
-      <LayoutShell>
-        <div className="space-y-8">
-          <Skeleton className="h-12 w-1/3" />
-          <div className="grid md:grid-cols-3 gap-6">
-            <Skeleton className="h-32" />
-            <Skeleton className="h-32" />
-            <Skeleton className="h-32" />
-          </div>
-          <Skeleton className="h-96" />
-        </div>
-      </LayoutShell>
-    );
-  }
+  // Calculamos cuántas están pendientes en cada una
+  const pendingBdns = bdnsGrants?.filter((g: any) => g.status === "pending" || !g.status)?.length || 0;
+  const pendingBoe = boeGrants?.filter((g: any) => g.status === "pending" || !g.status)?.length || 0;
+  const pendingTed = tedGrants?.filter((g: any) => g.status === "pending" || !g.status)?.length || 0;
 
-  // Calculate stats
-  const savedMatches = matches?.filter(m => m.status === 'saved') || [];
-  const appliedMatches = matches?.filter(m => m.status === 'applied') || [];
-  const highMatches = grants?.filter(g => (g.match?.score || 0) > 80) || [];
-  const totalPotentialFunding = highMatches.reduce((acc, curr) => acc + (curr.budget || 0), 0);
+  const isLoading = isLoadingBdns || isLoadingBoe || isLoadingTed;
 
   return (
     <LayoutShell>
-      <div className="space-y-8">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-display font-bold text-slate-900">
-              Buenos días, {company?.name}
-            </h1>
-            <p className="text-slate-500 mt-1">Aquí tienes el resumen de ayudas para hoy.</p>
-          </div>
-          <Button asChild>
-            <Link href="/grants">Buscar Nuevas Ayudas <ArrowRight className="ml-2 h-4 w-4" /></Link>
-          </Button>
+      <div className="container mx-auto p-6 max-w-6xl">
+        <div className="mb-8">
+          <h1 className="text-3xl font-display font-bold text-slate-900">Panel de Control</h1>
+          <p className="text-slate-500 mt-2">Resumen de oportunidades pendientes de revisión de todas las fuentes.</p>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                  <Sparkles className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-500">Nuevas Oportunidades</p>
-                  <h3 className="text-2xl font-bold text-slate-900">{highMatches.length}</h3>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
-                  <Clock className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-500">En Progreso</p>
-                  <h3 className="text-2xl font-bold text-slate-900">{appliedMatches.length}</h3>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-                  <Wallet className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-500">Financiación Potencial</p>
-                  <h3 className="text-2xl font-bold text-slate-900">€{totalPotentialFunding.toLocaleString()}</h3>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Top Matches Section */}
-        <section>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-blue-600" />
-              Principales Recomendaciones
-            </h2>
-            <Link href="/grants" className="text-sm font-medium text-blue-600 hover:text-blue-700">
-              Ver todas
-            </Link>
+        {isLoading ? (
+          <div className="flex flex-col justify-center items-center h-64 space-y-4">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            <p className="text-slate-500">Cargando estado de las subvenciones...</p>
           </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {highMatches.slice(0, 3).map((grant) => (
-              <Link key={grant.id} href={`/grants/${grant.id}`}>
-                <div className="group bg-white rounded-xl border border-slate-200 p-6 shadow-sm hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer h-full flex flex-col relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-4">
-                    <MatchScoreBadge score={grant.match?.score || 0} size="sm" showLabel={false} />
-                  </div>
-                  
-                  <div className="mb-4">
-                    <div className="inline-flex items-center rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-800 mb-2">
-                      {grant.scope}
-                    </div>
-                    <h3 className="font-bold text-slate-900 line-clamp-2 group-hover:text-blue-600 transition-colors">
-                      {grant.title}
-                    </h3>
-                  </div>
-
-                  <div className="mt-auto space-y-4">
-                    <div className="flex items-center text-sm text-slate-500">
-                      <Building2 className="mr-2 h-4 w-4" />
-                      <span className="truncate">{grant.organismo}</span>
-                    </div>
-                    {grant.budget && (
-                      <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                        <span className="text-xs text-slate-500 font-medium uppercase">Presupuesto</span>
-                        <span className="font-bold text-slate-900">€{grant.budget.toLocaleString()}</span>
-                      </div>
-                    )}
-                  </div>
+            {/* Tarjeta BDNS */}
+            <Card className="hover:shadow-lg transition-all border-blue-100 flex flex-col">
+              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                <CardTitle className="text-lg font-bold text-slate-800">Base Nacional (BDNS)</CardTitle>
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Landmark className="h-5 w-5 text-blue-600" />
                 </div>
-              </Link>
-            ))}
+              </CardHeader>
+              <CardContent className="flex-1 mt-4">
+                <div className="text-5xl font-black text-slate-900 mb-2">
+                  {pendingBdns}
+                </div>
+                <p className="text-sm font-medium text-slate-500">Subvenciones pendientes</p>
+              </CardContent>
+              <CardFooter className="bg-slate-50 border-t pt-4 mt-4">
+                <Link href="/bdns" className="w-full">
+                  <Button 
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white" 
+                    variant={pendingBdns === 0 ? "outline" : "default"}
+                  >
+                    {pendingBdns > 0 ? "Revisar BDNS" : "Ir a BDNS"} <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
+              </CardFooter>
+            </Card>
+
+            {/* Tarjeta BOE */}
+            <Card className="hover:shadow-lg transition-all border-slate-200 flex flex-col">
+              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                <CardTitle className="text-lg font-bold text-slate-800">Boletín Oficial (BOE)</CardTitle>
+                <div className="p-2 bg-slate-100 rounded-lg">
+                  <BookOpen className="h-5 w-5 text-slate-700" />
+                </div>
+              </CardHeader>
+              <CardContent className="flex-1 mt-4">
+                <div className="text-5xl font-black text-slate-900 mb-2">
+                  {pendingBoe}
+                </div>
+                <p className="text-sm font-medium text-slate-500">Anuncios pendientes</p>
+              </CardContent>
+              <CardFooter className="bg-slate-50 border-t pt-4 mt-4">
+                <Link href="/boe" className="w-full">
+                  <Button 
+                    className="w-full bg-slate-800 hover:bg-slate-900 text-white"
+                    variant={pendingBoe === 0 ? "outline" : "default"}
+                  >
+                    {pendingBoe > 0 ? "Revisar BOE" : "Ir al BOE"} <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
+              </CardFooter>
+            </Card>
+
+            {/* Tarjeta Europa */}
+            <Card className="hover:shadow-lg transition-all border-purple-100 flex flex-col">
+              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                <CardTitle className="text-lg font-bold text-slate-800">Europa (F&T)</CardTitle>
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <Globe className="h-5 w-5 text-purple-600" />
+                </div>
+              </CardHeader>
+              <CardContent className="flex-1 mt-4">
+                <div className="text-5xl font-black text-slate-900 mb-2">
+                  {pendingTed}
+                </div>
+                <p className="text-sm font-medium text-slate-500">Convocatorias pendientes</p>
+              </CardContent>
+              <CardFooter className="bg-slate-50 border-t pt-4 mt-4">
+                <Link href="/europa" className="w-full">
+                  <Button 
+                    className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                    variant={pendingTed === 0 ? "outline" : "default"}
+                  >
+                    {pendingTed > 0 ? "Revisar Europa" : "Ir a Europa"} <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
+              </CardFooter>
+            </Card>
+
           </div>
-        </section>
+        )}
       </div>
     </LayoutShell>
   );

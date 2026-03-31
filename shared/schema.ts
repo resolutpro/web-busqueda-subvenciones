@@ -27,6 +27,7 @@ export const tedGrants = pgTable("ted_grants", {
   urlDetalle: text("url_detalle"),
   detallesExtraidos: jsonb("detalles_extraidos"), // Para guardar presupuesto, CPV, etc.
   aiAnalysis: jsonb("ia_analisis"), // El veredicto de la IA
+  status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -39,6 +40,7 @@ export const boeGrants = pgTable("boe_grants", {
   urlPdf: text("url_pdf"),
   urlHtml: text("url_html"),
   aiAnalysis: jsonb("ia_analisis"), // Guardamos el análisis/filtro de la IA
+  status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -51,6 +53,7 @@ export const bdnsGrants = pgTable("bdns_grants", {
   urlDetalle: text("url_detalle"),
   detallesExtraidos: jsonb("detalles_extraidos"), // Presupuesto, base reguladora, etc.
   iaAnalisis: jsonb("ia_analisis"), // Guardamos por qué la IA dijo que cuadraba
+  status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

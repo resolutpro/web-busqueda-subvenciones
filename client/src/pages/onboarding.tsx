@@ -52,7 +52,7 @@ export default function OnboardingPage() {
           <div className="h-12 w-12 rounded-xl bg-primary flex items-center justify-center text-white font-bold text-2xl mx-auto mb-4 shadow-lg shadow-blue-500/30">
             S
           </div>
-          <h1 className="text-3xl font-display font-bold text-slate-900">Bienvenido a SubvenciónMatch</h1>
+          <h1 className="text-3xl font-display font-bold text-slate-900">Bienvenido a Detección de subvenciones</h1>
           <p className="text-slate-600 mt-2">Vamos a configurar el perfil de tu empresa para encontrar las mejores subvenciones para ti.</p>
         </div>
 
