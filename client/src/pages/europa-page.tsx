@@ -4,9 +4,10 @@ import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { RefreshCw, Trash2, Globe, Building, ExternalLink, CalendarDays, CheckCircle, X } from "lucide-react";
+import { RefreshCw, Trash2, Globe, Building, ExternalLink, CalendarDays, CheckCircle, X, Info, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 export default function EuropaPage() {
   const { toast } = useToast();
@@ -61,74 +62,130 @@ export default function EuropaPage() {
     return (
       <div className="grid gap-6 mt-4">
         {grantsList.map((grant: any) => (
-          <Card key={grant.id} className="hover:shadow-md transition-all border-purple-100">
-            <CardHeader>
-              <div className="flex justify-between items-start mb-2">
-                <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-200 border-none">{grant.identificador}</Badge>
-                {grant.fechaPublicacion && (
-                   <span className="text-xs text-slate-500 flex items-center gap-1">
-                     <CalendarDays className="h-3 w-3" />
-                     {new Date(grant.fechaPublicacion).toLocaleDateString()}
-                   </span>
+          <Dialog key={grant.id}>
+            <Card className="hover:shadow-md transition-all border-purple-100 flex flex-col">
+              <CardHeader>
+                <div className="flex justify-between items-start mb-2">
+                  <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-200 border-none">{grant.identificador}</Badge>
+
+                  {/* FECHAS DE APERTURA Y CIERRE */}
+                  <div className="flex gap-3">
+                    {grant.fechaPublicacion && (
+                      <span className="text-xs text-slate-500 flex items-center gap-1">
+                        <CalendarDays className="h-3 w-3" />
+                        Abre: {new Date(grant.fechaPublicacion).toLocaleDateString()}
+                      </span>
+                    )}
+                    {grant.detallesExtraidos?.fechaCierre && (
+                      <span className="text-xs text-red-500 font-medium flex items-center gap-1 bg-red-50 px-2 py-0.5 rounded-full">
+                        <Clock className="h-3 w-3" />
+                        Cierra: {new Date(grant.detallesExtraidos.fechaCierre).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <CardTitle className="text-xl leading-snug">{grant.titulo}</CardTitle>
+                {grant.detallesExtraidos?.programa && (
+                  <p className="text-sm text-purple-600 font-medium mt-1">{grant.detallesExtraidos.programa}</p>
                 )}
-              </div>
-              <CardTitle className="text-xl leading-snug">{grant.titulo}</CardTitle>
-            </CardHeader>
+              </CardHeader>
 
-            <CardContent className="space-y-4">
-              {grant.aiAnalysis?.matches?.filter((m: any) => m.cuadra).map((match: any, index: number) => (
-                <div key={index} className={`p-4 rounded-md border ${match.cuadra ? 'bg-purple-50 border-purple-200' : 'bg-slate-50 border-slate-200'}`}>
-                  <h4 className="font-bold flex items-center gap-2 mb-2">
-                    <Building className="h-4 w-4" /> 
-                    {match.companyName}
-                    {match.cuadra && <Badge variant="outline" className="bg-purple-100 text-purple-800 border-none">Aceptada</Badge>}
-                  </h4>
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                    <strong className="text-slate-900">Evaluación: </strong> 
-                    {match.razon}
-                  </p>
+              <CardContent className="space-y-4 flex-grow">
+                {grant.aiAnalysis?.matches?.filter((m: any) => m.cuadra).map((match: any, index: number) => (
+                  <div key={index} className={`p-4 rounded-md border ${match.cuadra ? 'bg-purple-50 border-purple-200' : 'bg-slate-50 border-slate-200'}`}>
+                    <h4 className="font-bold flex items-center gap-2 mb-2">
+                      <Building className="h-4 w-4" /> 
+                      {match.companyName}
+                      {match.cuadra && <Badge variant="outline" className="bg-purple-100 text-purple-800 border-none">Aceptada</Badge>}
+                    </h4>
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                      <strong className="text-slate-900">Evaluación: </strong> 
+                      {match.razon}
+                    </p>
+                  </div>
+                ))}
+
+                {/* Fallback antiguo o modo prueba */}
+                {(grant.aiAnalysis?.razon || grant.aiAnalysis?.mensaje) && !grant.aiAnalysis?.matches && (
+                   <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed p-4 bg-purple-50 rounded-md">
+                      <strong>Info IA: </strong>{grant.aiAnalysis.razon || grant.aiAnalysis.mensaje}
+                   </p>
+                )}
+
+                {/* BOTÓN PARA ABRIR LA DESCRIPCIÓN */}
+                <div className="pt-2">
+                  <DialogTrigger asChild>
+                    <Button variant="secondary" className="w-full text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-100">
+                      <Info className="h-4 w-4 mr-2" /> Leer descripción completa
+                    </Button>
+                  </DialogTrigger>
                 </div>
-              ))}
+              </CardContent>
 
-              {/* Fallback antiguo */}
-              {grant.aiAnalysis?.razon && !grant.aiAnalysis?.matches && (
-                 <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed p-4 bg-purple-50 rounded-md">
-                    <strong>Evaluación: </strong>{grant.aiAnalysis.razon}
-                 </p>
-              )}
-            </CardContent>
+              <CardFooter className="justify-between border-t border-slate-100 pt-4 bg-slate-50/50 mt-auto">
+                {grant.urlDetalle ? (
+                  <a href={grant.urlDetalle} target="_blank" rel="noopener noreferrer" className="text-sm text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium">
+                    Ver en Portal SEDIA <ExternalLink className="h-4 w-4" />
+                  </a>
+                ) : <div/>}
 
-            <CardFooter className="justify-between border-t border-slate-100 pt-4 bg-slate-50/50">
-              {grant.urlDetalle ? (
-                <a href={grant.urlDetalle} target="_blank" rel="noopener noreferrer" className="text-sm text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium">
-                  Ver en Portal <ExternalLink className="h-4 w-4" />
-                </a>
-              ) : <div/>}
-
-              {/* BOTONES DE ACCIÓN DEPENDIENDO DE LA PESTAÑA */}
-              {isPendingSection ? (
-                <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                    onClick={() => updateStatusMutation.mutate({ id: grant.id, status: "rejected" })}
-                  >
-                    <X className="h-4 w-4 mr-1" /> Rechazar
+                {/* BOTONES DE ACCIÓN */}
+                {isPendingSection ? (
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                      onClick={() => updateStatusMutation.mutate({ id: grant.id, status: "rejected" })}
+                    >
+                      <X className="h-4 w-4 mr-1" /> Rechazar
+                    </Button>
+                    <Button 
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => updateStatusMutation.mutate({ id: grant.id, status: "accepted" })}
+                    >
+                      <CheckCircle className="h-4 w-4 mr-1" /> Aceptar
+                    </Button>
+                  </div>
+                ) : (
+                  <Button variant="ghost" className="text-red-500 hover:bg-red-50" onClick={() => deleteMutation.mutate(grant.id)}>
+                    <Trash2 className="h-4 w-4 mr-2" /> Eliminar
                   </Button>
-                  <Button 
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                    onClick={() => updateStatusMutation.mutate({ id: grant.id, status: "accepted" })}
-                  >
-                    <CheckCircle className="h-4 w-4 mr-1" /> Aceptar
-                  </Button>
+                )}
+              </CardFooter>
+            </Card>
+
+            {/* CONTENIDO DEL DIALOG (MODAL) CON LA DESCRIPCIÓN */}
+            <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+              <DialogHeader>
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-200 border-none">{grant.identificador}</Badge>
+                  {grant.detallesExtraidos?.fechaCierre && (
+                    <Badge variant="outline" className="border-red-200 text-red-600 bg-red-50">
+                      Cierra: {new Date(grant.detallesExtraidos.fechaCierre).toLocaleDateString()}
+                    </Badge>
+                  )}
                 </div>
-              ) : (
-                <Button variant="ghost" className="text-red-500 hover:bg-red-50" onClick={() => deleteMutation.mutate(grant.id)}>
-                  <Trash2 className="h-4 w-4 mr-2" /> Eliminar definitivamente
-                </Button>
-              )}
-            </CardFooter>
-          </Card>
+                <DialogTitle className="text-2xl text-slate-900 leading-tight pr-6">
+                  {grant.titulo}
+                </DialogTitle>
+                {grant.detallesExtraidos?.programa && (
+                  <p className="text-sm font-medium text-purple-600">{grant.detallesExtraidos.programa}</p>
+                )}
+              </DialogHeader>
+
+              <div className="mt-4 flex-1 overflow-y-auto pr-4 text-slate-700 text-sm leading-relaxed space-y-4
+                  [&>h2]:text-lg [&>h2]:font-bold [&>h2]:text-slate-900 [&>h2]:mt-6 [&>h2]:mb-2 [&>h2]:underline
+                  [&>ul]:list-disc [&>ul]:pl-6 [&>ul]:mb-4 [&>ul>li]:mb-1
+                  [&>ol]:list-decimal [&>ol]:pl-6 [&>ol]:mb-4 [&>ol>li]:mb-1
+                  [&>p]:mb-3 [&>strong]:text-slate-900"
+                dangerouslySetInnerHTML={{ 
+                  __html: grant.detallesExtraidos?.descripcion && grant.detallesExtraidos.descripcion !== "Sin descripción disponible" 
+                    ? grant.detallesExtraidos.descripcion 
+                    : "<p class='text-slate-500 italic'>No hay descripción detallada disponible para esta convocatoria.</p>" 
+                }}
+              />
+            </DialogContent>
+          </Dialog>
         ))}
       </div>
     );

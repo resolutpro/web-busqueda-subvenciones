@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { scrapeBDNS } from "./services/bdns-scraper";
+import { fetchTEDGrants } from "./services/ted-scraper";
 
 // Importamos node-cron y tu función del BOE
 import cron from "node-cron";
@@ -82,6 +83,13 @@ app.use((req, res, next) => {
       log("✅ [CRON] Descarga y procesamiento de BDNS completado con éxito.", "cron");
     } catch (error) {
       log(`❌ [CRON] Error procesando BDNS: ${error}`, "cron");
+    }
+
+    try {
+      await fetchTEDGrants();
+      log("✅ [CRON] Descarga y procesamiento de TED completado con éxito.", "cron");
+    } catch (error) {
+      log(`❌ [CRON] Error procesando TED: ${error}`, "cron");
     }
 
     
