@@ -16,6 +16,18 @@ export function useCompany() {
   });
 }
 
+export function useCompanies() {
+  return useQuery<Company[]>({
+    queryKey: [api.companies.me.path],
+    queryFn: async () => {
+      const res = await fetch(api.companies.me.path, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    retry: false,
+  });
+}
+
 export function useCreateCompany() {
   const queryClient = useQueryClient();
   const { toast } = useToast();

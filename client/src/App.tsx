@@ -55,12 +55,17 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
 // Y en el componente Router, actualiza la raíz:
 function Router() {
-  const { user } = useAuth();
-  const { companies } = useCompanies();
+  const { user, isLoading: authLoading } = useAuth();
+  const { companies, isLoading: companiesLoading } = useCompanies();
   const hasCompanies = companies && companies.length > 0;
+  const isLoading = authLoading || companiesLoading;
 
   if (isLoading) {
-    return null; // or a splash screen
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
