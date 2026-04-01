@@ -12,178 +12,267 @@ function parseBDNSDate(dateStr: string) {
   return new Date(`${year}-${month}-${day}`);
 }
 
-export async function scrapeBDNS() {
-  console.log("🚀 Iniciando scraping BDNS (Modo Paginación + Evaluación Multi-Empresa)...");
+// DEFINICIÓN DE LOS 4 FILTROS EXCLUYENTES
+const MODOS_BUSQUEDA = [
+  { 
+    id: 'C', 
+    nombre: 'Administración del Estado', 
+    seleccionarEspecificos: 'ALL'
+  },
+  { 
+    id: 'A', 
+    nombre: 'Comunidades autónomas', 
+    seleccionarEspecificos: [
+      'ANDALUCÍA', 'ARAGÓN', 'CASTILLA Y LEÓN', 'COMUNITAT VALENCIANA', 'EXTREMADURA', 'GALICIA'
+    ] 
+  },
+  { 
+    id: 'L', 
+    nombre: 'Entidades locales', 
+    seleccionarEspecificos: [
+      // Andalucía
+      'ALMERÍA', 'CÁDIZ', 'CÓRDOBA', 'GRANADA', 'HUELVA', 'JAÉN', 'MÁLAGA', 'SEVILLA',
+      // Aragón
+      'HUESCA', 'TERUEL', 'ZARAGOZA',
+      // Castilla y León
+      'ÁVILA', 'BURGOS', 'LEÓN', 'PALENCIA', 'SALAMANCA', 'SEGOVIA', 'SORIA', 'VALLADOLID', 'ZAMORA',
+      // Comunitat Valenciana
+      'ALACANT / ALICANTE', 'CASTELLÓ / CASTELLÓN', 'VALÈNCIA / VALENCIA',
+      // Extremadura
+      'BADAJOZ', 'CÁCERES',
+      // Galicia
+      'A CORUÑA', 'LUGO', 'OURENSE', 'PONTEVEDRA'
+    ] 
+  },
+  { 
+    id: 'O', 
+    nombre: 'Otros órganos', 
+    seleccionarEspecificos: 'ALL'
+  }
+];
 
-  // 1. Obtener estado para saber dónde parar (Límite histórico de la última vez)
-  const stateRecord = await db.query.scrapingState.findFirst({
-    where: eq(scrapingState.key, "highest_bdns_code"),
-  });
-  const stopCodeLimit = stateRecord ? parseInt(stateRecord.value, 10) : 0;
-  let highestCodeThisSession = stopCodeLimit; // Esta variable subirá en tiempo real
+export async function scrapeBDNS() {
+  console.log("🚀 Iniciando scraping BDNS (Filtros Órgano Convocante + Multi-Empresa)...");
 
   const oneYearAgo = new Date();
   oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
-  // 2. OBTENER TODAS LAS EMPRESAS PARA EVALUACIÓN MASIVA
   const todasLasEmpresas = await db.select().from(companies);
-
   if (todasLasEmpresas.length === 0) {
-    console.log("\n⚠️ [BDNS] No hay empresas registradas. Deteniendo scraper para ahorrar recursos.\n");
+    console.log("\n⚠️ [BDNS] No hay empresas registradas. Deteniendo scraper.\n");
     return;
   }
 
-  // Preparamos el array estructurado para la IA
   const arrayEmpresasIA = todasLasEmpresas.map(e => ({
     id: e.id,
     name: e.name,
     description: `Tamaño: ${e.size || 'No definido'}. Ubicación: ${e.location || 'No definida'}. Sector/CNAE: ${e.cnae || 'No definido'}. Actividad: ${e.description}`
   }));
 
-  console.log(`\n📝 Se han cargado ${arrayEmpresasIA.length} empresas para evaluación masiva con IA.\n`);
-
   try {
     let chromiumPath = "";
-    try {
-      chromiumPath = execSync("which chromium").toString().trim();
-    } catch (e) {
-      chromiumPath = "chromium";
-    }
+    try { chromiumPath = execSync("which chromium").toString().trim(); } 
+    catch (e) { chromiumPath = "chromium"; }
 
     const browser = await puppeteer.launch({
       headless: true,
       executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process', '--no-zygote']
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
     });
 
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 }); 
 
-    await page.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
+    // ==========================================
+    // BUCLE EXTERNO: POR CADA MODO DE BÚSQUEDA
+    // ==========================================
+    for (const modo of MODOS_BUSQUEDA) {
+      console.log(`\n======================================================`);
+      console.log(`🔎 INICIANDO BÚSQUEDA PARA: ${modo.nombre}`);
+      console.log(`======================================================\n`);
 
-    // Espera inicial generosa para carga AJAX
-    await new Promise(resolve => setTimeout(resolve, 8000));
-
-    let keepScraping = true;
-    let pageCounter = 1;
-
-    // BUCLE PRINCIPAL DE PAGINACIÓN
-    while (keepScraping) {
-      console.log(`\n📄 --- Procesando Página ${pageCounter} ---`);
-
-      // Extraer TODAS las convocatorias visibles
-      const convocatoriasPagina = await page.evaluate(() => {
-        const filas = Array.from(document.querySelectorAll('table tbody tr'));
-        return filas.map(fila => {
-          const columnas = fila.querySelectorAll('td');
-          if (columnas.length < 3 || columnas[0].innerText.includes("Cargando")) return null; 
-
-          const celdaCodigo = columnas[0];
-          const celdaFechaRegistro = columnas[4]; 
-          const celdaTitulo = columnas[5];
-          const etiquetaEnlace = celdaTitulo.querySelector('a');
-
-          return {
-            codigoBDNS: celdaCodigo.innerText.trim(),
-            fechaRegistro: celdaFechaRegistro.innerText.trim(),
-            titulo: celdaTitulo.innerText.trim(),
-            organoConvocante: columnas[3].innerText.trim(),
-            urlDetalle: etiquetaEnlace ? etiquetaEnlace.href : null
-          };
-        }).filter(item => item !== null);
+      // === NUEVO: Obtenemos el límite específico para este modo ===
+      const stateKey = `highest_bdns_code_${modo.id}`;
+      const stateRecord = await db.query.scrapingState.findFirst({
+        where: eq(scrapingState.key, stateKey),
       });
+      const stopCodeLimit = stateRecord ? parseInt(stateRecord.value, 10) : 0;
+      let highestCodeThisSession = stopCodeLimit;
 
-      console.log(`🔍 Encontradas ${convocatoriasPagina.length} convocatorias en esta página.`);
+      console.log(`📍 Último código procesado para ${modo.nombre}: ${stopCodeLimit}`);
 
-      // Procesar una por una las convocatorias de la página
-      for (let i = 0; i < convocatoriasPagina.length; i++) {
-        const convocatoria = convocatoriasPagina[i];
-        if (!convocatoria) continue;
+      // 1. Ir a la web desde cero
+      await page.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
+      await new Promise(resolve => setTimeout(resolve, 5000));
 
-        const currentCode = parseInt(convocatoria.codigoBDNS, 10);
-        const currentDate = parseBDNSDate(convocatoria.fechaRegistro);
+      try {
+        // 2. Abrir el panel de "Órgano convocante"
+        await page.evaluate(() => {
+          const headers = Array.from(document.querySelectorAll('mat-expansion-panel-header'));
+          const panelOrgano = headers.find(h => h.textContent?.includes('Órgano convocante'));
+          if (panelOrgano && !panelOrgano.classList.contains('mat-expanded')) {
+            (panelOrgano as HTMLElement).click();
+          }
+        });
+        await new Promise(resolve => setTimeout(resolve, 1500)); 
 
-        // --- CONDICIONES DE PARADA ---
-        // Parada 1: Ya existe en BD (Código menor o igual al límite histórico de la vez anterior)
-        if (currentCode <= stopCodeLimit) {
-          console.log(`🛑 Deteniendo: Código BDNS ${currentCode} ya fue procesado en sesiones anteriores.`);
-          keepScraping = false;
-          break; // Salir del bucle FOR
-        }
+        // 3. Seleccionar el Radio Button (C, A, L, O)
+        await page.evaluate((radioValue) => {
+          const radioInput = document.querySelector(`input[type="radio"][value="${radioValue}"]`);
+          if (radioInput) {
+            const radioContainer = radioInput.closest('mat-radio-button')?.querySelector('label');
+            if (radioContainer) (radioContainer as HTMLElement).click();
+          }
+        }, modo.id);
 
-        // Parada 2: Fecha más antigua de un año
-        if (currentDate && currentDate < oneYearAgo) {
-          console.log(`🛑 Deteniendo: Fecha ${convocatoria.fechaRegistro} es más antigua de 1 año.`);
-          keepScraping = false;
-          break; // Salir del bucle FOR
-        }
+        console.log(`🔘 Seleccionado radio button: ${modo.nombre}`);
+        await new Promise(resolve => setTimeout(resolve, 3000)); 
 
-        console.log(`[${i+1}/${convocatoriasPagina.length}] Analizando subvención ${convocatoria.codigoBDNS}...`);
+        // 4. Marcar los checkboxes pertinentes (o todos)
+        if (modo.seleccionarEspecificos) {
+          console.log(`☑️ Aplicando checkboxes para ${modo.nombre}...`);
 
-        if (convocatoria.urlDetalle) {
-          const detailPage = await browser.newPage();
-          try {
-            await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "networkidle2", timeout: 30000 });
-            await new Promise(resolve => setTimeout(resolve, 2000));
+          await page.evaluate((elementosDeseados) => {
+            const nodos = document.querySelectorAll('mat-tree-node');
 
-            const scriptDetalle = `
-              (() => {
-                const campos = {
-                  codigoBDNS: 'Código BDNS',
-                  sedeElectronica: 'Sede electrónica para la presentación de solicitudes', 
-                  organoConvocante: 'Órgano convocante', 
-                  mecanismoRecuperacion: 'Mecanismo de Recuperación y Resiliencia', 
-                  fechaRegistro: 'Fecha de registro', 
-                  tipoConvocatoria: 'Tipo de convocatoria', 
-                  presupuestoTotal: 'Presupuesto total de la convocatoria', 
-                  instrAyuda: 'Instrumento de ayuda', 
-                  tituloConv: 'Título de la convocatoria en español', 
-                  tipoBeneficiario: 'Tipo de beneficiario elegible', 
-                  sectorEconomico: 'Sector económico del beneficiario', 
-                  regionImpacto: 'Región de impacto', 
-                  finPolitica: 'Finalidad (política de gasto)', 
-                  tituloBases: 'Título de las Bases reguladoras', 
-                  dirBasesReg: 'Dirección electrónica de las bases reguladoras'
-                };
-                const resultados = {};
-                for (let clave in campos) resultados[clave] = "";
-                const titulos = document.querySelectorAll('.titulo-campo');
-                for (let i = 0; i < titulos.length; i++) {
-                  const titulo = titulos[i];
-                  const valorExtraido = titulo.nextElementSibling ? titulo.nextElementSibling.textContent.trim() : "";
-                  for (let clave in campos) {
-                    if ((titulo.textContent || "").includes(campos[clave])) resultados[clave] = valorExtraido;
-                  }
-                }
-                return resultados;
-              })();
-            `;
+            for (let i = 0; i < nodos.length; i++) {
+              const nodo = nodos[i];
+              const labelElement = nodo.querySelector('.mat-checkbox-label');
+              if (!labelElement) continue;
 
-            const detallesExtraidos = await detailPage.evaluate(scriptDetalle);
-            const infoCompleta = { ...convocatoria, ...detallesExtraidos };
+              const textoCheckbox = labelElement.textContent?.trim().toUpperCase() || "";
+              const checkbox = nodo.querySelector('mat-checkbox');
+              const isChecked = checkbox?.classList.contains('mat-checkbox-checked');
 
-            // ==========================================
-            // LÓGICA DE CONSULTA IA MASIVA
-            // ==========================================
-            let algunaEmpresaCuadra = false;
+              let deberiaEstarMarcado = false;
+              if (elementosDeseados === 'ALL') {
+                deberiaEstarMarcado = true; 
+              } else if (Array.isArray(elementosDeseados)) {
+                deberiaEstarMarcado = (elementosDeseados as string[]).includes(textoCheckbox);
+              }
 
-            let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
-
-            // Estandarizamos el JSON para asegurarnos de que el array se llame "matches"
-            const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
-            iaAnalisisMasivo.matches = matchesArray;
-
-            for (const match of matchesArray) {
-              if (match.cuadra) {
-                algunaEmpresaCuadra = true;
-                console.log(`   ✅ ¡CUADRA para la empresa: ${match.companyName || match.companyId}! Razón: ${match.razon}`);
+              if (isChecked !== deberiaEstarMarcado) {
+                const labelClickable = nodo.querySelector('label.mat-checkbox-layout');
+                if (labelClickable) (labelClickable as HTMLElement).click();
               }
             }
+          }, modo.seleccionarEspecificos);
 
-            // Si le cuadra al menos a una empresa, guardamos la subvención en la BD
-            if (algunaEmpresaCuadra) {
-              console.log(`   💾 Guardando subvención BDNS porque cuadra con al menos una empresa: ${convocatoria.codigoBDNS}`);
-              try {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+
+        // 5. Clicar en "Filtrar"
+        console.log("🖱️ Haciendo clic en 'Filtrar'...");
+        await page.evaluate(() => {
+          const botones = Array.from(document.querySelectorAll('button'));
+          const btnFiltrar = botones.find(btn => btn.textContent?.toLowerCase().includes('filtrar'));
+          if (btnFiltrar) (btnFiltrar as HTMLElement).click();
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 8000));
+
+      } catch (err) {
+        console.error(`❌ Error configurando filtros para ${modo.nombre}. Saltando a la siguiente sección.`, err);
+        continue; 
+      }
+
+      // ==========================================
+      // BUCLE INTERNO: PAGINACIÓN DE RESULTADOS
+      // ==========================================
+      let keepScraping = true;
+      let pageCounter = 1;
+
+      while (keepScraping) {
+        console.log(`\n📄 [${modo.nombre}] --- Procesando Página ${pageCounter} ---`);
+
+        const convocatoriasPagina = await page.evaluate(() => {
+          const filas = Array.from(document.querySelectorAll('table tbody tr'));
+          return filas.map(fila => {
+            const columnas = fila.querySelectorAll('td');
+            if (columnas.length < 3 || columnas[0].innerText.includes("Cargando")) return null; 
+
+            const celdaCodigo = columnas[0];
+            const celdaFechaRegistro = columnas[4]; 
+            const celdaTitulo = columnas[5];
+            const etiquetaEnlace = celdaTitulo.querySelector('a');
+
+            return {
+              codigoBDNS: celdaCodigo.innerText.trim(),
+              fechaRegistro: celdaFechaRegistro.innerText.trim(),
+              titulo: celdaTitulo.innerText.trim(),
+              organoConvocante: columnas[3].innerText.trim(),
+              urlDetalle: etiquetaEnlace ? etiquetaEnlace.href : null
+            };
+          }).filter(item => item !== null);
+        });
+
+        console.log(`🔍 Encontradas ${convocatoriasPagina.length} convocatorias en esta página.`);
+
+        if (convocatoriasPagina.length === 0) {
+          console.log(`🛑 No hay resultados para ${modo.nombre}. Terminando paginación.`);
+          break;
+        }
+
+        for (let i = 0; i < convocatoriasPagina.length; i++) {
+          const convocatoria = convocatoriasPagina[i];
+          if (!convocatoria) continue;
+
+          const currentCode = parseInt(convocatoria.codigoBDNS, 10);
+          const currentDate = parseBDNSDate(convocatoria.fechaRegistro);
+
+          // === Aquí la validación se hace con el límite propio de esta categoría ===
+          if (currentCode <= stopCodeLimit) {
+            console.log(`🛑 Deteniendo: Código BDNS ${currentCode} ya procesado en [${modo.nombre}].`);
+            keepScraping = false;
+            break; 
+          }
+
+          if (currentDate && currentDate < oneYearAgo) {
+            console.log(`🛑 Deteniendo: Fecha antigua.`);
+            keepScraping = false;
+            break; 
+          }
+
+          console.log(`[${i+1}/${convocatoriasPagina.length}] Analizando ${convocatoria.codigoBDNS}...`);
+
+          if (convocatoria.urlDetalle) {
+            const detailPage = await browser.newPage();
+            try {
+              await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "networkidle2", timeout: 30000 });
+              await new Promise(resolve => setTimeout(resolve, 2000));
+
+              const detallesExtraidos = await detailPage.evaluate(() => {
+                const campos = {
+                  codigoBDNS: 'Código BDNS', sedeElectronica: 'Sede electrónica', 
+                  presupuestoTotal: 'Presupuesto total de la convocatoria', 
+                  tituloBases: 'Título de las Bases reguladoras'
+                };
+                const res: any = {};
+                const titulos = document.querySelectorAll('.titulo-campo');
+                titulos.forEach(titulo => {
+                  const valor = titulo.nextElementSibling ? titulo.nextElementSibling.textContent?.trim() : "";
+                  for (let clave in campos) {
+                    if ((titulo.textContent || "").includes((campos as any)[clave])) res[clave] = valor;
+                  }
+                });
+                return res;
+              });
+
+              const infoCompleta = { ...convocatoria, ...detallesExtraidos };
+
+              let algunaEmpresaCuadra = false;
+              let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
+              const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
+              iaAnalisisMasivo.matches = matchesArray;
+
+              for (const match of matchesArray) {
+                if (match.cuadra) {
+                  algunaEmpresaCuadra = true;
+                  console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
+                }
+              }
+
+              if (algunaEmpresaCuadra) {
                 await db.insert(bdnsGrants).values({
                   codigoBDNS: convocatoria.codigoBDNS,
                   titulo: convocatoria.titulo,
@@ -191,93 +280,47 @@ export async function scrapeBDNS() {
                   fechaRegistro: currentDate,
                   urlDetalle: convocatoria.urlDetalle,
                   detallesExtraidos: detallesExtraidos, 
-                  iaAnalisis: iaAnalisisMasivo // Guardamos todo el objeto JSON normalizado
+                  iaAnalisis: iaAnalisisMasivo
                 });
-              } catch (dbErr) { console.error("   ❌ Error DB al insertar BDNS:", dbErr); }
-            } else {
-              console.log(`   ❌ No cuadra para ninguna de las empresas analizadas.`);
-            }
-            // ==========================================
+              }
 
-          } catch (err: any) {
-             console.error(`   ❌ Error detalle ${convocatoria.codigoBDNS}:`, err.message);
-          } finally {
-            await detailPage.close();
+            } catch (err: any) {
+               console.error(`   ❌ Error detalle ${convocatoria.codigoBDNS}`);
+            } finally {
+              await detailPage.close();
 
-            // --- GUARDADO CONTINUO EN BD DEL PROGRESO (POR CADA SUBVENCIÓN) ---
-            if (currentCode > highestCodeThisSession) {
-              highestCodeThisSession = currentCode;
-              try {
-                await db.insert(scrapingState)
-                  .values({ key: "highest_bdns_code", value: highestCodeThisSession.toString() })
-                  .onConflictDoUpdate({
-                    target: scrapingState.key,
-                    set: { value: highestCodeThisSession.toString(), updatedAt: new Date() }
-                  });
-                console.log(`   💾 Progreso asegurado en BD. Nuevo tope: ${highestCodeThisSession}`);
-              } catch (stateErr) {
-                console.error("   ❌ Error guardando el estado:", stateErr);
+              // === Guardamos el progreso específico en la DB ===
+              if (currentCode > highestCodeThisSession) {
+                highestCodeThisSession = currentCode;
+                await db.insert(scrapingState).values({ key: stateKey, value: highestCodeThisSession.toString() })
+                  .onConflictDoUpdate({ target: scrapingState.key, set: { value: highestCodeThisSession.toString(), updatedAt: new Date() } });
               }
             }
-            // -----------------------------------------------------------------
           }
-        }
-      } // Fin del bucle FOR (procesar filas de la página)
+        } 
 
-      // LOGICA DE CAMBIO DE PÁGINA (Material UI Angular)
-      if (keepScraping) {
-        console.log("➡️ Intentando pasar a la siguiente página...");
+        if (keepScraping) {
+          const SELECTOR_BOTON_SIGUIENTE = 'button.mat-paginator-navigation-next'; 
+          const estaDeshabilitado = await page.$('button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled');
 
-        const SELECTOR_BOTON_SIGUIENTE = 'button.mat-paginator-navigation-next'; 
-        const SELECTOR_BOTON_DESHABILITADO = 'button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled';
-
-        const botonSiguiente = await page.$(SELECTOR_BOTON_SIGUIENTE);
-        const estaDeshabilitado = await page.$(SELECTOR_BOTON_DESHABILITADO);
-
-        if (botonSiguiente && !estaDeshabilitado) {
-          try {
-            await page.evaluate((selector) => {
-              const btn = document.querySelector(selector);
-              if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, SELECTOR_BOTON_SIGUIENTE);
-
-            await new Promise(resolve => setTimeout(resolve, 1500));
-
-            await page.evaluate((selector) => {
-               const btn = document.querySelector(selector) as HTMLElement;
-               if (btn) btn.click();
-            }, SELECTOR_BOTON_SIGUIENTE);
-
-            console.log("✅ Clic en 'Siguiente' realizado.");
-            await new Promise(resolve => setTimeout(resolve, 6000));
-            pageCounter++;
-          } catch (clickErr) {
-            console.error("❌ Error al clicar en 'Siguiente':", clickErr);
+          if (!estaDeshabilitado) {
+            try {
+              await page.evaluate((sel) => { (document.querySelector(sel) as HTMLElement)?.click(); }, SELECTOR_BOTON_SIGUIENTE);
+              await new Promise(resolve => setTimeout(resolve, 6000));
+              pageCounter++;
+            } catch (e) { keepScraping = false; }
+          } else {
             keepScraping = false; 
           }
-        } else {
-          console.log("🛑 No hay más páginas disponibles (Botón 'Siguiente' no encontrado o deshabilitado).");
-          keepScraping = false; 
         }
-      }
+      } 
+    } // Fin Bucle de Modos
 
-    } // Fin del bucle WHILE
+    console.log(`\n🎉 Scraping completado para todas las secciones.`);
 
-    console.log(`\n🎉 Scraping completado. Último código verificado asegurado: ${highestCodeThisSession}`);
+    await db.insert(scrapingState).values({ key: "last_bdns_sync", value: new Date().toISOString() })
+      .onConflictDoUpdate({ target: scrapingState.key, set: { value: new Date().toISOString(), updatedAt: new Date() }});
 
-    // NUEVO: Guardar la fecha de la última sincronización
-    try {
-      await db.insert(scrapingState)
-        .values({ key: "last_bdns_sync", value: new Date().toISOString() })
-        .onConflictDoUpdate({
-          target: scrapingState.key,
-          set: { value: new Date().toISOString(), updatedAt: new Date() }
-        });
-      console.log(`💾 Fecha de sincronización de BDNS actualizada en BD.`);
-    } catch (stateErr) {
-      console.error("❌ Error guardando last_bdns_sync:", stateErr);
-    }
-    
     await browser.close();
 
   } catch (error) {

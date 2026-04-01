@@ -6,29 +6,35 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function checkGrantWithAI(grantDetails: any, companies: {id: number, name: string, description: string}[]) {
   try {
+    // OPTIMIZACIÓN: Quitamos el null, 2 para minificar el JSON y ahorrar miles de tokens de entrada
     const prompt = `
       Actúa como un experto en subvenciones. Tengo esta nueva convocatoria:
-      ${JSON.stringify(grantDetails, null, 2)}
+      ${JSON.stringify(grantDetails)}
 
       Y tengo esta lista de empresas con sus perfiles:
-      ${JSON.stringify(companies, null, 2)}
+      ${JSON.stringify(companies)}
 
       Evalúa la subvención contra CADA empresa. 
-      Responde estrictamente en formato JSON con la siguiente estructura:
+      Responde estrictamente en formato JSON.
+
+      IMPORTANTE: Devuelve en el array "matches" ÚNICAMENTE las empresas para las que la subvención sea relevante y cumplan los requisitos. 
+      Si una empresa NO cuadra (es descartada), OMÍTELA completamente del resultado JSON para ahorrar tokens.
+
+      Estructura esperada:
       {
         "matches": [
           {
             "companyId": id_de_la_empresa,
             "companyName": "nombre de la empresa",
-            "cuadra": boolean,
-            "razon": "Si cuadra=true, da una explicación detallada y útil. Si cuadra=false, responde ÚNICAMENTE con la palabra 'Descartada' para ahorrar tokens."
+            "cuadra": true,
+            "razon": "Explicación detallada y útil de por qué cuadra perfectamente."
           }
         ]
       }
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o-mini", // Mantenemos el modelo económico
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
     });
@@ -75,29 +81,32 @@ export async function evaluateGrantRelevance(titulo: string, tipo: string) {
 
 export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, companies: Company[]) {
   try {
-    // Formateamos la información de todas las empresas para el prompt
     const companiesInfo = companies.map(c => 
       `Empresa ID: ${c.id} | Nombre: ${c.name} | Sector/CNAE: ${c.cnae} | Tamaño: ${c.size} | Descripción/Requisitos: "${c.description}"`
     ).join("\n\n");
 
+    // OPTIMIZACIÓN: JSON.stringify sin null, 2 y prompt restrictivo
     const prompt = `
       Actúa como un experto en subvenciones. Tengo las siguientes empresas bajo mi gestión:
 
       ${companiesInfo}
 
       Y he extraído esta información de una nueva convocatoria de la BDNS:
-      ${JSON.stringify(grantDetails, null, 2)}
+      ${JSON.stringify(grantDetails)}
 
       ¿Cumple esta subvención con los requisitos de alguna de estas empresas? 
       Evalúa CADA empresa individualmente.
 
-      Responde estrictamente en formato JSON con la siguiente estructura:
+      Responde estrictamente en formato JSON.
+      IMPORTANTE: Devuelve en el array "evaluaciones" ÚNICAMENTE las empresas que SÍ cumplen los requisitos. Si una empresa no cuadra, no la incluyas en el array bajo ningún concepto.
+
+      Estructura esperada:
       {
         "evaluaciones": [
           {
             "companyId": <ID numérico de la empresa>,
-            "cuadra": boolean,
-            "razon": "breve explicación de por qué cuadra o no para esta empresa en concreto"
+            "cuadra": true,
+            "razon": "breve explicación de por qué cuadra para esta empresa en concreto"
           }
         ]
       }
@@ -111,7 +120,7 @@ export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, co
 
     const content = response.choices[0].message.content;
     if (content) {
-      return JSON.parse(content); // Devuelve { evaluaciones: [...] }
+      return JSON.parse(content);
     }
     return { evaluaciones: [] };
   } catch (error) {
