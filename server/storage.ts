@@ -16,11 +16,11 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, and, desc, sql, gte } from "drizzle-orm";
-import { authStorage } from "./replit_integrations/auth/storage";
+// ELIMINAMOS EL IMPORT DE REPLIT AUTH
 
 export interface IStorage {
   upsertGrant(grant: InsertGrant): Promise<Grant>;
-  // Auth (via replit auth storage)
+  // Auth
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
 
@@ -50,7 +50,6 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   async upsertGrant(insertGrant: InsertGrant): Promise<Grant> {
-    // Si tiene bdnsId, intentamos actualizar o insertar (upsert)
     if (insertGrant.bdnsId) {
       const [existing] = await db
         .insert(grants)
@@ -62,28 +61,35 @@ export class DatabaseStorage implements IStorage {
             endDate: insertGrant.endDate,
             budget: insertGrant.budget,
             rawText: insertGrant.rawText,
-            // Actualizamos solo los campos que pueden cambiar
           },
         })
         .returning();
       return existing;
     }
 
-    // Si no tiene ID externo, simplemente creamos
     const [newGrant] = await db.insert(grants).values(insertGrant).returning();
     return newGrant;
   }
 
-  // Auth delegation
+  // --- NUEVA LÓGICA DE AUTH DIRECTA A BBDD ---
   async getUser(id: string): Promise<User | undefined> {
-    return authStorage.getUser(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
+
   async upsertUser(user: UpsertUser): Promise<User> {
-    return authStorage.upsertUser(user);
+    const [updatedUser] = await db
+      .insert(users)
+      .values(user)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: user,
+      })
+      .returning();
+    return updatedUser;
   }
+  // -------------------------------------------
 
-
-  // Cambiar getCompany por getCompaniesByUserId
   async getCompaniesByUserId(userId: string): Promise<Company[]> {
     return await db
       .select()
@@ -96,7 +102,12 @@ export class DatabaseStorage implements IStorage {
       .insert(companies)
       .values(insertCompany)
       .returning();
-    // Trigger matching logic immediately after creation
+
+    if (!company) {
+      throw new Error("Error al crear la empresa en la base de datos");
+    }
+
+    // Ejecutar el matching inmediatamente
     await this.generateMatchesForCompany(company.id);
     return company;
   }
@@ -111,7 +122,6 @@ export class DatabaseStorage implements IStorage {
       .where(eq(companies.id, id))
       .returning();
 
-    // Re-trigger matching on update
     await this.generateMatchesForCompany(company.id);
     return company;
   }
@@ -193,7 +203,6 @@ export class DatabaseStorage implements IStorage {
     return match;
   }
 
-  // Matching Logic (Simple Heuristic for MVP)
   async generateMatchesForCompany(companyId: number): Promise<void> {
     const [company] = await db
       .select()
@@ -204,13 +213,11 @@ export class DatabaseStorage implements IStorage {
     const allGrants = await this.getGrants();
 
     for (const grant of allGrants) {
-      // Check if match already exists
       const existing = await this.getMatch(companyId, grant.id);
       if (existing) continue;
 
       let score = 0;
 
-      // 1. Sector/Tags Match (30 points)
       if (
         company.description.toLowerCase().includes("digital") &&
         (grant.title.toLowerCase().includes("digital") ||
@@ -219,8 +226,6 @@ export class DatabaseStorage implements IStorage {
         score += 30;
       }
 
-      // 2. Location Match (20 points)
-      // Simplified: If grant is National or matches company location
       if (
         grant.scope === "Nacional" ||
         grant.scope === "Europeo" ||
@@ -229,7 +234,6 @@ export class DatabaseStorage implements IStorage {
         score += 20;
       }
 
-      // 3. Keyword Overlap (50 points)
       const keywords = company.description.toLowerCase().split(" ");
       let keywordMatches = 0;
       for (const word of keywords) {
@@ -243,7 +247,6 @@ export class DatabaseStorage implements IStorage {
       }
       score += Math.min(50, keywordMatches * 10);
 
-      // Create match if score > 0
       if (score > 10) {
         await this.createMatch({
           companyId,
@@ -252,11 +255,11 @@ export class DatabaseStorage implements IStorage {
           status: "new",
           aiAnalysis: {
             summary: `Compatibilidad detectada basada en palabras clave: ${keywords.slice(0, 3).join(", ")}`,
-            expenses: ["Personal", "Equipamiento", "Software"], // Mock
+            expenses: ["Personal", "Equipamiento", "Software"],
             requirements: [
               "Estar al corriente con Hacienda",
               "PYME constituida",
-            ], // Mock
+            ],
           },
         });
       }

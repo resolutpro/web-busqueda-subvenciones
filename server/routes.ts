@@ -1,10 +1,6 @@
 import type { Express } from "express";
 import type { Server } from "http";
-import {
-  setupAuth,
-  registerAuthRoutes,
-  isAuthenticated,
-} from "./replit_integrations/auth";
+import { setupAuth, isAuthenticated } from "./auth";
 import { storage } from "./storage";
 import { api, errorSchemas } from "@shared/routes";
 import { z } from "zod";
@@ -21,12 +17,11 @@ export async function registerRoutes(
 ): Promise<Server> {
   // 1. Setup Auth
   await setupAuth(app);
-  registerAuthRoutes(app);
 
   // 2. Company Routes
   app.get(api.companies.me.path, isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userCompanies = await storage.getCompaniesByUserId(userId);
       res.json(userCompanies || []);
     } catch (error) {
@@ -43,7 +38,7 @@ export async function registerRoutes(
         const input = api.companies.create.input.parse(req.body);
         const company = await storage.createCompany({
           ...input,
-          userId: req.user.claims.sub,
+          userId: req.user.id,
         });
         res.status(201).json(company);
       } catch (err) {
@@ -61,7 +56,7 @@ export async function registerRoutes(
       const input = api.companies.update.input.parse(req.body);
 
       // Verificamos si la empresa pertenece a este usuario buscando en todas sus empresas
-      const userCompanies = await storage.getCompaniesByUserId(req.user.claims.sub);
+      const userCompanies = await storage.getCompaniesByUserId(req.user.id);
       const ownsCompany = userCompanies.some(c => c.id === id);
 
       if (!ownsCompany) {
@@ -91,7 +86,7 @@ export async function registerRoutes(
           : undefined,
       };
 
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userCompanies = await storage.getCompaniesByUserId(userId);
       const grants = await storage.getGrants(params);
 
@@ -136,7 +131,7 @@ export async function registerRoutes(
     const grant = await storage.getGrant(id);
     if (!grant) return res.status(404).json({ message: "Grant not found" });
 
-    const userId = req.user.claims.sub;
+    const userId = req.user.id;
     const userCompanies = await storage.getCompaniesByUserId(userId);
     let result: any = grant;
 
@@ -157,7 +152,7 @@ export async function registerRoutes(
 
   // 4. Matches Routes
   app.get(api.matches.list.path, isAuthenticated, async (req: any, res) => {
-    const userId = req.user.claims.sub;
+    const userId = req.user.id;
     const userCompanies = await storage.getCompaniesByUserId(userId);
     if (!userCompanies || userCompanies.length === 0) return res.json([]);
 

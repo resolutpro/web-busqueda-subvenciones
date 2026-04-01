@@ -4,7 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
-import { useCompany } from "@/hooks/use-companies";
+import { useCompanies } from "@/hooks/use-companies";
 import { Loader2 } from "lucide-react";
 import LandingPage from "@/pages/landing";
 import OnboardingPage from "@/pages/onboarding";
@@ -19,36 +19,45 @@ import BoePage from "@/pages/boe-page";
 import EuropaPage from "@/pages/europa-page";
 
 
+// client/src/App.tsx
+
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading: authLoading } = useAuth();
-  const { data: company, isLoading: companyLoading, isError } = useCompany();
+  // Obtenemos las empresas para saber si redirigir
+  const { companies, isLoading: companiesLoading } = useCompanies();
 
-  // Show generic loading while checking auth
-  if (authLoading || companyLoading) {
+  if (authLoading || companiesLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
-  // Not logged in -> Landing
-  if (!user) {
-    return <Redirect to="/" />;
-  }
+  if (!user) return <Redirect to="/" />;
 
-  // Logged in but no company profile -> Onboarding
-  // Only redirect if NOT already on onboarding page to prevent loops
-  if (!company && window.location.pathname !== "/onboarding") {
+  // LÓGICA INTELIGENTE: 
+  // Si intenta ir a cualquier sitio y no tiene empresas -> Onboarding
+  // Si ya tiene empresas e intenta ir a Onboarding -> Dashboard
+  const hasCompanies = companies && companies.length > 0;
+  const isAtOnboarding = window.location.pathname === "/onboarding";
+
+  if (!hasCompanies && !isAtOnboarding) {
     return <Redirect to="/onboarding" />;
   }
 
-  // All good
+  if (hasCompanies && isAtOnboarding) {
+    return <Redirect to="/dashboard" />;
+  }
+
   return <Component />;
 }
 
+// Y en el componente Router, actualiza la raíz:
 function Router() {
-  const { user, isLoading } = useAuth();
+  const { user } = useAuth();
+  const { companies } = useCompanies();
+  const hasCompanies = companies && companies.length > 0;
 
   if (isLoading) {
     return null; // or a splash screen
@@ -58,7 +67,11 @@ function Router() {
     <Switch>
       {/* Public Landing */}
       <Route path="/">
-        {user ? <Redirect to="/dashboard" /> : <LandingPage />}
+        {user ? (
+          hasCompanies ? <Redirect to="/dashboard" /> : <Redirect to="/onboarding" />
+        ) : (
+          <LandingPage />
+        )}
       </Route>
 
       {/* Protected Routes */}
