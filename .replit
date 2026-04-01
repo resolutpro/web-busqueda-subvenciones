@@ -15,7 +15,7 @@ PUPPETEER_EXECUTABLE_PATH = "/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromiu
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["node", "./dist/index.cjs"]
+run = ["npm", "start"]
 build = ["npm", "run", "build"]
 
 [workflows]

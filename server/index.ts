@@ -66,73 +66,63 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await registerRoutes(httpServer, app);
+  try {
+    console.log("[STARTUP] 1. Iniciando servidor...");
+    await registerRoutes(httpServer, app);
+    console.log("[STARTUP] 2. Rutas registradas correctamente.");
 
-  // === CONFIGURACIÓN DEL CRON JOB ===
-  cron.schedule("0 8 * * *", async () => {
-    log("⏰ [CRON] Iniciando la descarga diaria del BOE...", "cron");
-    try {
-      await fetchDailyBOE();
-      log("✅ [CRON] Descarga y procesamiento del BOE completado con éxito.", "cron");
-    } catch (error) {
-      log(`❌ [CRON] Error procesando el BOE: ${error}`, "cron");
+    // === CONFIGURACIÓN DEL CRON JOB ===
+    cron.schedule("0 8 * * *", async () => {
+      log("⏰ [CRON] Iniciando la descarga diaria...", "cron");
+      try {
+        await fetchDailyBOE();
+        log("✅ [CRON] BOE completado.", "cron");
+      } catch (error) { log(`❌ [CRON] Error BOE: ${error}`, "cron"); }
+
+      try {
+        await scrapeBDNS();
+        log("✅ [CRON] BDNS completado.", "cron");
+      } catch (error) { log(`❌ [CRON] Error BDNS: ${error}`, "cron"); }
+
+      try {
+        await fetchTEDGrants();
+        log("✅ [CRON] TED completado.", "cron");
+      } catch (error) { log(`❌ [CRON] Error TED: ${error}`, "cron"); }
+    }, { timezone: "Europe/Madrid" });
+
+    log("📅 Cron job programado para las 08:00 AM (Europe/Madrid).", "cron");
+    // ===================================
+
+    app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
+      console.error("Internal Server Error:", err);
+      if (res.headersSent) return next(err);
+      return res.status(status).json({ message });
+    });
+
+    if (process.env.NODE_ENV === "production") {
+      console.log("[STARTUP] 3. Configurando estáticos para producción...");
+      serveStatic(app);
+    } else {
+      console.log("[STARTUP] 3. Configurando Vite para desarrollo...");
+      const { setupVite } = await import("./vite");
+      await setupVite(httpServer, app);
     }
 
-    try {
-      await scrapeBDNS();
-      log("✅ [CRON] Descarga y procesamiento de BDNS completado con éxito.", "cron");
-    } catch (error) {
-      log(`❌ [CRON] Error procesando BDNS: ${error}`, "cron");
-    }
+    console.log("[STARTUP] 4. Intentando exponer el puerto...");
+    const PORT = process.env.PORT || 5000;
+    httpServer.listen(Number(PORT), "0.0.0.0", () => {
+      console.log(`[STARTUP] ✅ ÉXITO: Servidor escuchando en el puerto ${PORT}`);
+      log(`serving on port ${PORT}`);
+    });
 
-    try {
-      await fetchTEDGrants();
-      log("✅ [CRON] Descarga y procesamiento de TED completado con éxito.", "cron");
-    } catch (error) {
-      log(`❌ [CRON] Error procesando TED: ${error}`, "cron");
-    }
+    httpServer.on("error", (err) => {
+      console.error("[STARTUP] ❌ Error en el servidor HTTP:", err);
+    });
 
-    
-  }, {
-    timezone: "Europe/Madrid"
-  });
-
-  log("📅 Cron job del BOE programado para las 08:00 AM (Europe/Madrid).", "cron");
-  // ===================================
-
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    console.error("Internal Server Error:", err);
-
-    if (res.headersSent) {
-      return next(err);
-    }
-
-    return res.status(status).json({ message });
-  });
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
-  } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
+  } catch (error) {
+    console.error("[STARTUP] ❌ Error FATAL durante el arranque:", error);
+    process.exit(1); // Forzamos el cierre para que Replit registre el error
   }
-
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
 })();
