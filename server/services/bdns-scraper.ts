@@ -242,19 +242,69 @@ export async function scrapeBDNS() {
               await new Promise(resolve => setTimeout(resolve, 2000));
 
               const detallesExtraidos = await detailPage.evaluate(() => {
-                const campos = {
-                  codigoBDNS: 'Código BDNS', sedeElectronica: 'Sede electrónica', 
-                  presupuestoTotal: 'Presupuesto total de la convocatoria', 
-                  tituloBases: 'Título de las Bases reguladoras'
-                };
-                const res: any = {};
+                // Lista exacta de los campos que te interesan
+                const camposInteres = [
+                  "Órgano convocante", 
+                  "Sede electrónica para la presentación de solicitudes",
+                  "Código BDNS", 
+                  "Mecanismo de Recuperación y Resiliencia", 
+                  "Fecha de registro",
+                  "Tipo de convocatoria", 
+                  "Presupuesto total de la convocatoria", 
+                  "Instrumento de ayuda",
+                  "Título de la convocatoria en español", 
+                  "Tipo de beneficiario elegible",
+                  "Sector económico del beneficiario", 
+                  "Región de impacto", 
+                  "Finalidad (política de gasto)",
+                  "Título de las Bases reguladoras", 
+                  "Dirección electrónica de las bases reguladoras",
+                  "¿El extracto de la convocatoria se publica en diario oficial?",
+                  "¿Se puede solicitar indefinidamente?", 
+                  "Fecha de inicio del periodo de solicitud",
+                  "SA Number (Referencia de ayuda de estado)", 
+                  "SA Number (Enlace UE)",
+                  "Cofinanciado con Fondos UE", 
+                  "Sector de productos", 
+                  "Reglamento (UE)", 
+                  "Objetivos"
+                ];
+
+                const res: Record<string, string> = {};
                 const titulos = document.querySelectorAll('.titulo-campo');
+
                 titulos.forEach(titulo => {
-                  const valor = titulo.nextElementSibling ? titulo.nextElementSibling.textContent?.trim() : "";
-                  for (let clave in campos) {
-                    if ((titulo.textContent || "").includes((campos as any)[clave])) res[clave] = valor;
+                  // 1. Extraer y limpiar el título del campo (quitando el punto '·' y estandarizando espacios)
+                  let clave = (titulo.textContent || "").replace('·', '').trim();
+                  clave = clave.replace(/\s+/g, ' '); // Evitar dobles espacios que rompan el match
+
+                  if (!clave) return;
+
+                  // 2. Extraer el valor del siguiente elemento HTML
+                  const elementoValor = titulo.nextElementSibling as HTMLElement;
+                  let valor = "";
+
+                  if (elementoValor) {
+                    // Usar innerText permite capturar los diferentes <div> anidados (como en Órgano convocante)
+                    valor = elementoValor.innerText || elementoValor.textContent || "";
+
+                    // Reemplazar los saltos de línea internos por " - " para que quede legible y en una línea
+                    valor = valor.replace(/\n+/g, ' - ').replace(/\s+/g, ' ').trim();
+
+                    // Limpiar guiones residuales al inicio o final
+                    if (valor.startsWith('- ')) valor = valor.substring(2);
+                    if (valor.endsWith(' -')) valor = valor.substring(0, valor.length - 2);
+                  }
+
+                  // 3. Guardar el campo si coincide con la lista de interés (o puedes quitar el 'if' para guardarlos absolutamente todos)
+                  if (camposInteres.includes(clave)) {
+                    res[clave] = valor || "";
+                  } else {
+                    // Guardamos por defecto los demás también por si añaden campos nuevos útiles
+                    res[clave] = valor || "";
                   }
                 });
+
                 return res;
               });
 

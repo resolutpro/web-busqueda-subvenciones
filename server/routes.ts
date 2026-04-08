@@ -325,5 +325,52 @@ export async function registerRoutes(
     }
   });
 
+  // 1. Añade un middleware de seguridad simple para OpenClaw
+  const isAgentAuthenticated = (req: any, res: any, next: any) => {
+    const authHeader = req.headers.authorization;
+    // Define esta variable en tu .env (ej. OPENCLAW_SECRET_KEY=mi_clave_secreta_123)
+    if (authHeader !== `Bearer ${process.env.OPENCLAW_SECRET_KEY}`) {
+      return res.status(401).json({ error: "No autorizado. API Key inválida." });
+    }
+    next();
+  };
+
+  // 2. Define la ruta unificada para el agente
+  app.get("/api/agent/pending-grants", isAgentAuthenticated, async (req, res) => {
+    try {
+      const bdns = await db.query.bdnsGrants.findMany({
+        where: eq(bdnsGrants.status, "pending"),
+        limit: 15
+      });
+
+      const boe = await db.select().from(boeGrants)
+        .where(eq(boeGrants.status, "pending")).limit(15);
+
+      const ted = await db.select().from(tedGrants)
+        .where(eq(tedGrants.status, "pending")).limit(15);
+
+      // UNIFICAMOS inyectando TODOS los campos originales de cada registro
+      const unifiedGrants = [
+        ...bdns.map(g => ({ 
+          source: 'BDNS', 
+          ...g // Propaga absolutamente todas las columnas de esta fila
+        })),
+        ...boe.map(g => ({ 
+          source: 'BOE', 
+          ...g 
+        })),
+        ...ted.map(g => ({ 
+          source: 'TED', 
+          ...g 
+        }))
+      ];
+
+      res.json(unifiedGrants);
+    } catch (error) {
+      console.error("Error en API del agente:", error);
+      res.status(500).json({ error: "Error interno obteniendo subvenciones" });
+    }
+  });
+
   return httpServer;
 }
