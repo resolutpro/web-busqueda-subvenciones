@@ -335,42 +335,6 @@ export async function registerRoutes(
     next();
   };
 
-  // 2. Define la ruta unificada para el agente
-  app.get("/api/agent/pending-grants", isAgentAuthenticated, async (req, res) => {
-    try {
-      const bdns = await db.query.bdnsGrants.findMany({
-        where: eq(bdnsGrants.status, "pending"),
-        limit: 15
-      });
-
-      const boe = await db.select().from(boeGrants)
-        .where(eq(boeGrants.status, "pending")).limit(15);
-
-      const ted = await db.select().from(tedGrants)
-        .where(eq(tedGrants.status, "pending")).limit(15);
-
-      // UNIFICAMOS inyectando TODOS los campos originales de cada registro
-      const unifiedGrants = [
-        ...bdns.map(g => ({ 
-          source: 'BDNS', 
-          ...g // Propaga absolutamente todas las columnas de esta fila
-        })),
-        ...boe.map(g => ({ 
-          source: 'BOE', 
-          ...g 
-        })),
-        ...ted.map(g => ({ 
-          source: 'TED', 
-          ...g 
-        }))
-      ];
-
-      res.json(unifiedGrants);
-    } catch (error) {
-      console.error("Error en API del agente:", error);
-      res.status(500).json({ error: "Error interno obteniendo subvenciones" });
-    }
-  });
 
   return httpServer;
 }

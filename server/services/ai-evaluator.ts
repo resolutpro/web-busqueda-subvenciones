@@ -1,8 +1,17 @@
 import OpenAI from "openai";
 import { Company } from "@shared/schema";
+import { notifyAgentOfMatch } from "./openclaw-notifier";
 
 // Asegúrate de tener OPENAI_API_KEY en tus variables de entorno (.env)
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Función para auto-detectar el origen leyendo los campos de la base de datos
+function detectSource(grantDetails: any): 'BDNS' | 'BOE' | 'TED' | 'Desconocido' {
+  if (grantDetails.codigoBDNS) return 'BDNS';
+  if (grantDetails.departamento) return 'BOE';
+  if (grantDetails.pais) return 'TED';
+  return 'Desconocido';
+}
 
 export async function checkGrantWithAI(grantDetails: any, companies: {id: number, name: string, description: string}[]) {
   try {
@@ -40,8 +49,24 @@ export async function checkGrantWithAI(grantDetails: any, companies: {id: number
     });
 
     const content = response.choices[0].message.content;
-    return content ? JSON.parse(content) : { matches: [] };
-  } catch (error) {
+    const result = content ? JSON.parse(content) : { matches: [] };
+
+      // --- NUEVA LÓGICA DE NOTIFICACIÓN ---
+      if (result.matches && result.matches.length > 0) {
+        const source = detectSource(grantDetails);
+
+        // Creamos un texto legible uniendo todas las empresas que hicieron match
+        const reasonText = result.matches
+          .map((m: any) => `- EMPRESA: ${m.companyName} (ID: ${m.companyId})\n  MOTIVO: ${m.razon}`)
+          .join("\n\n");
+
+        // Disparamos el webhook hacia OpenClaw
+        await notifyAgentOfMatch(source, grantDetails, reasonText);
+      }
+      // ------------------------------------
+
+      return result;
+    } catch (error) {
     console.error("Error al consultar a OpenAI:", error);
     return { matches: [] };
   }
@@ -119,10 +144,26 @@ export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, co
     });
 
     const content = response.choices[0].message.content;
-    if (content) {
-      return JSON.parse(content);
+    iconst result = content ? JSON.parse(content) : { evaluaciones: [] };
+
+    // --- NUEVA LÓGICA DE NOTIFICACIÓN ---
+    if (result.evaluaciones && result.evaluaciones.length > 0) {
+      const source = detectSource(grantDetails);
+
+      // En este prompt no pediste el companyName a la IA, así que buscamos el nombre en el array original 'companies'
+      const reasonText = result.evaluaciones
+        .map((evalData: any) => {
+          const comp = companies.find(c => c.id === evalData.companyId);
+          const nombreEmpresa = comp ? comp.name : `ID Desconocido (${evalData.companyId})`;
+          return `- EMPRESA: ${nombreEmpresa}\n  MOTIVO: ${evalData.razon}`;
+        })
+        .join("\n\n");
+
+      await notifyAgentOfMatch(source, grantDetails, reasonText);
     }
-    return { evaluaciones: [] };
+    // ------------------------------------
+
+    return result;
   } catch (error) {
     console.error("Error al consultar a OpenAI en bulk:", error);
     return { evaluaciones: [] };

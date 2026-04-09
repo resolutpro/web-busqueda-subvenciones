@@ -1,44 +1,35 @@
 // server/services/openclaw-notifier.ts
 
-export async function notifyAgentOfMatch(grant: any, matchScore: number, matchReason: string) {
-  // La URL del webhook de OpenClaw (por defecto suele correr en el puerto 19001 o el que configures)
-  const webhookUrl = process.env.OPENCLAW_WEBHOOK_URL || "http://localhost:19001/hooks/wake";
+export async function notifyAgentOfMatch(source: string, grantData: any, matchReason: string) {
+  // 1. Usamos el endpoint de AGENTE, no el de WAKE
+  const webhookUrl = "http://178.104.134.24:18789/hooks/agent";
+  const token = process.env.OPENCLAW_TOKEN;
 
-  // Preparamos el contexto exacto que el agente necesita leer
-  const prompt = `
-¡Alerta! Se ha detectado una nueva subvención con alta compatibilidad (${matchScore}%).
-
-DATOS DE LA SUBVENCIÓN:
-- Origen: ${grant.source || 'Desconocido'}
-- Título: ${grant.titulo}
-- Organismo: ${grant.organoConvocante || grant.departamento || grant.pais}
-- ID: ${grant.identificador || grant.codigoBDNS || grant.id}
-
-ANÁLISIS DE COMPATIBILIDAD:
-${matchReason}
-
-Por favor, revisa esto y procede con el siguiente paso en tu Skill.
-  `;
+  // 2. Creamos el mensaje estructurado que el agente entiende
+  const message = `
+ORIGEN: REPLIT_AUTOMATION
+TIPO_FUENTE: ${source}
+MOTIVO_MATCH: ${matchReason}
+DATOS_JSON: ${JSON.stringify(grantData)}
+  `.trim();
 
   try {
     const response = await fetch(webhookUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}` 
       },
-      // OpenClaw espera un campo 'text' y podemos forzar el modo 'now' para que despierte ya
       body: JSON.stringify({ 
-        text: prompt,
-        mode: "now" 
+        agentId: "subvenciones_agent", // Tu agente específico
+        message: message,
+        wakeMode: "now"
       })
     });
 
-    if (!response.ok) {
-      console.warn(`[OpenClaw] El agente no respondió correctamente: ${response.status}`);
-    } else {
-      console.log(`[OpenClaw] Agente notificado con éxito sobre la subvención: ${grant.titulo}`);
-    }
+    const result = await response.json();
+    console.log("Agente activado:", result);
   } catch (error) {
-    console.error("[OpenClaw] Error de conexión con el agente:", error);
+    console.error("Error notificando al agente:", error);
   }
 }
