@@ -2,8 +2,9 @@ import OpenAI from "openai";
 import { Company } from "@shared/schema";
 import { notifyAgentOfMatch } from "./openclaw-notifier";
 
-// Asegúrate de tener OPENAI_API_KEY en tus variables de entorno (.env)
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ 
+  apiKey: process.env.OPENAI_API_KEY 
+});
 
 // Función para auto-detectar el origen leyendo los campos de la base de datos
 function detectSource(grantDetails: any): 'BDNS' | 'BOE' | 'TED' | 'Desconocido' {
@@ -15,7 +16,6 @@ function detectSource(grantDetails: any): 'BDNS' | 'BOE' | 'TED' | 'Desconocido'
 
 export async function checkGrantWithAI(grantDetails: any, companies: {id: number, name: string, description: string}[]) {
   try {
-    // OPTIMIZACIÓN: Quitamos el null, 2 para minificar el JSON y ahorrar miles de tokens de entrada
     const prompt = `
       Actúa como un experto en subvenciones. Tengo esta nueva convocatoria:
       ${JSON.stringify(grantDetails)}
@@ -43,7 +43,7 @@ export async function checkGrantWithAI(grantDetails: any, companies: {id: number
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Mantenemos el modelo económico
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
     });
@@ -67,7 +67,7 @@ export async function checkGrantWithAI(grantDetails: any, companies: {id: number
 
       return result;
     } catch (error) {
-    console.error("Error al consultar a OpenAI:", error);
+    console.error("Error al consultar a DeepSeek:", error);
     return { matches: [] };
   }
 }
@@ -87,7 +87,7 @@ export async function evaluateGrantRelevance(titulo: string, tipo: string) {
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "deepseek-chat", // 3️⃣ CAMBIO AQUÍ
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
     });
@@ -98,11 +98,10 @@ export async function evaluateGrantRelevance(titulo: string, tipo: string) {
     }
     return { isRelevant: false, razon: "Respuesta vacía de la IA" };
   } catch (error) {
-    console.error("Error al consultar a OpenAI:", error);
+    console.error("Error al consultar a DeepSeek:", error);
     return { isRelevant: false, razon: "Error de conexión con la IA" };
   }
 }
-
 
 export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, companies: Company[]) {
   try {
@@ -110,7 +109,6 @@ export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, co
       `Empresa ID: ${c.id} | Nombre: ${c.name} | Sector/CNAE: ${c.cnae} | Tamaño: ${c.size} | Descripción/Requisitos: "${c.description}"`
     ).join("\n\n");
 
-    // OPTIMIZACIÓN: JSON.stringify sin null, 2 y prompt restrictivo
     const prompt = `
       Actúa como un experto en subvenciones. Tengo las siguientes empresas bajo mi gestión:
 
@@ -138,19 +136,18 @@ export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, co
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", 
+      model: "deepseek-chat", // 4️⃣ CAMBIO AQUÍ
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
     });
 
     const content = response.choices[0].message.content;
-    iconst result = content ? JSON.parse(content) : { evaluaciones: [] };
+    const result = content ? JSON.parse(content) : { evaluaciones: [] };
 
     // --- NUEVA LÓGICA DE NOTIFICACIÓN ---
     if (result.evaluaciones && result.evaluaciones.length > 0) {
       const source = detectSource(grantDetails);
 
-      // En este prompt no pediste el companyName a la IA, así que buscamos el nombre en el array original 'companies'
       const reasonText = result.evaluaciones
         .map((evalData: any) => {
           const comp = companies.find(c => c.id === evalData.companyId);
@@ -165,7 +162,7 @@ export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, co
 
     return result;
   } catch (error) {
-    console.error("Error al consultar a OpenAI en bulk:", error);
+    console.error("Error al consultar a DeepSeek en bulk:", error);
     return { evaluaciones: [] };
   }
 }
