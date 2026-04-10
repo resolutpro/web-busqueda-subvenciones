@@ -2,23 +2,29 @@ export async function notifyAgentOfMatch(source: string, grantData: any, matchRe
   const webhookUrl = "http://178.104.134.24:18789/hooks-privado-88xqz/subvenciones";
   const token = process.env.OPENCLAW_HOOKS_TOKEN;
 
+  // 1. TEXTO LEGIBLE (Esto es lo que verá el grupo de Telegram si es VÁLIDA)
   const textPayload = `
-URL/Fuente: ${source}
-Motivo: ${matchReason}
-Datos: ${JSON.stringify(grantData, null, 2)}
+🚨 **Posible Subvención Detectada**
+📍 Fuente: ${source}
+🏷 Título: ${grantData.titulo || 'Sin título'}
+💡 Motivo del Match: ${matchReason}
+🔗 Enlace: ${grantData.url || grantData.urlDetalle || 'No disponible'}
   `.trim();
 
-  // Guardamos el body en una variable para poder imprimirlo por consola
+  // 2. ID ESTABLE (Buscamos la propiedad correcta según el origen del scraper)
+  const uniqueId = grantData.identificador || grantData.codigoBDNS || grantData.id || Date.now().toString();
+
+  // 3. EL NUEVO PAYLOAD EXACTO PARA OPENCLAW (id, text, rawJson)
   const payloadBody = { 
-    id: grantData.codigoBDNS || Date.now().toString(),
-    text: textPayload
+    id: uniqueId,
+    text: textPayload,
+    rawJson: JSON.stringify(grantData) // 👈 El agente usará esto en la sombra para evaluar y crear carpetas
   };
 
-  // 👇 --- NUEVOS LOGS PARA VER QUÉ SE ESTÁ ENVIANDO EXACTAMENTE --- 👇
   console.log("\n=== 🚀 ENVIANDO DATOS A OPENCLAW ===");
   console.log("URL Destino:", webhookUrl);
+  console.log("ID Único:", uniqueId);
   console.log("Token detectado en ENV:", token ? "SÍ ✅" : "NO ❌");
-  console.log("Cuerpo del mensaje (Payload):", JSON.stringify(payloadBody, null, 2));
   console.log("======================================\n");
 
   try {
@@ -31,11 +37,10 @@ Datos: ${JSON.stringify(grantData, null, 2)}
       body: JSON.stringify(payloadBody)
     });
 
-    // Comprobamos si OpenClaw nos da un error (ej. 404 Not Found)
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`❌ Error devuelto por OpenClaw (Status: ${response.status}):`, errorText);
-      return; // Salimos para no intentar hacer JSON.parse de un error
+      return; 
     }
 
     const result = await response.json();
