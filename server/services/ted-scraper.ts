@@ -100,6 +100,9 @@ export async function fetchTEDGrants() {
         let urlGenerada = "";
         let idLimpio = identificadorRaw;
 
+        // EXTRAEMOS EL ID NUMÉRICO INTERNO (Necesario para los competitive calls)
+        const ccm2Id = extractFTText(meta.callccm2Id || grantItem.callccm2Id, identificadorRaw);
+
         // Caso A: Viene de EuropeAid (ej: europeaid/186264/dd/act/lk)
         if (identificadorRaw.toLowerCase().includes('europeaid')) {
           const match = identificadorRaw.match(/\d{5,6}/); // Saca el "186264"
@@ -108,21 +111,27 @@ export async function fetchTEDGrants() {
             urlGenerada = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/prospect-details/${idLimpio}`;
           }
         } 
-        // Caso B: Es un Prospect normal (Tipo 8)
-        else if (typeId === "8" || identificadorRaw.toUpperCase().includes('PROSPECT')) {
+        // Caso B: Es explícitamente un Prospect (por el texto del identificador)
+        else if (identificadorRaw.toUpperCase().includes('PROSPECT')) {
           idLimpio = identificadorRaw.toUpperCase().includes("PROSPECTSEN") 
             ? identificadorRaw : `${identificadorRaw}PROSPECTSEN`;
           urlGenerada = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/prospect-details/${idLimpio}`;
         } 
-        // Caso C: Tender normal
+        // Caso C: Llamadas competitivas (Cascade Funding) - Tipo 8 genérico
+        else if (typeId === "8") {
+          // Usamos el ccm2Id numérico (ej: 13848) en lugar del string (SMP-COSME-...)
+          urlGenerada = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/competitive-calls-cs/${ccm2Id}`;
+        } 
+        // Caso D: Tender normal (Tipo 2)
         else if (typeId === "2") {
           urlGenerada = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/tender-details/${identificadorRaw.toLowerCase()}`;
         } 
-        // Caso D: Grant normal
+        // Caso E: Grant normal (Tipo 1 u otros)
         else {
           urlGenerada = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/${identificadorRaw.toLowerCase()}`;
         }
 
+        
         const deadlineRaw = extractFTText(meta.deadlineDate || grantItem.deadlineDate, "");
         totalProcesadas++;
         console.log(`\n[F&T ${totalProcesadas}] Analizando: ${tituloReal.substring(0, 60)}...`);
@@ -152,52 +161,82 @@ export async function fetchTEDGrants() {
 
         const detailPage = await browser.newPage();
         try {
-          await detailPage.goto(urlGenerada, { waitUntil: "networkidle2", timeout: 45000 });
-          // Esperamos a que Angular termine de cargar los datos
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          // Cambiamos networkidle2 por domcontentloaded para evitar que los errores internos 
+          // de Angular (como __name is not defined) aborten el scraping
+          await detailPage.goto(urlGenerada, { waitUntil: "domcontentloaded", timeout: 45000 });
+
+          // Esperamos generosamente a que Angular pinte los datos en pantalla
+          await new Promise(resolve => setTimeout(resolve, 6000));
 
           const textoExtraido = await detailPage.evaluate(() => {
-            // Buscamos específicamente las secciones que contienen la info útil
-            const sectionGeneral = document.querySelector('#scroll-gi');
-            const sectionDescription = document.querySelector('#scroll-sep');
-            const sectionFurtherInfo = document.querySelector('#scroll-fi');
+            // ⚠️ CÓDIGO LINEAL SIN FUNCIONES INTERNAS ⚠️
+            // Al evitar funciones internas, evitamos que Vite/esbuild inyecte el helper "__name" que causa el crasheo.
 
-            if (!sectionGeneral && !sectionDescription) return null;
+            // 1. Capturamos los nodos (buscando primero por ID y luego por la Clase de Angular)
+            let nGen = document.querySelector('#scroll-gi');
+            if (!nGen) {
+              let aux = document.querySelector('.scroll-gi');
+              if (aux) nGen = aux.closest('eui-card') || aux.closest('.eui-card') || aux.parentElement;
+            }
 
-            // Función interna para limpiar el texto de un elemento
-            const cleanText = (el: Element | null) => {
-              if (!el) return "";
-              // Clonamos para no romper la visualización por si acaso
-              const clone = el.cloneNode(true) as HTMLElement;
-              // Quitamos botones de "Show more" o iconos que puedan ensuciar
-              const basuras = clone.querySelectorAll('button, eui-icon-svg, .eui-icon');
-              basuras.forEach(b => b.remove());
+            let nDesc = document.querySelector('#scroll-sep');
+            if (!nDesc) {
+              let aux = document.querySelector('.scroll-sep');
+              if (aux) nDesc = aux.closest('eui-card') || aux.closest('.eui-card') || aux.parentElement;
+            }
 
-              return clone.innerText || clone.textContent || "";
-            };
+            let nTask = document.querySelector('#scroll-td');
+            if (!nTask) {
+              let aux = document.querySelector('.scroll-td');
+              if (aux) nTask = aux.closest('eui-card') || aux.closest('.eui-card') || aux.parentElement;
+            }
 
-            const infoGeneral = cleanText(sectionGeneral);
-            const infoDetallada = cleanText(sectionDescription);
-            const linksExtra = cleanText(sectionFurtherInfo);
+            let nInfo = document.querySelector('#scroll-fi');
+            if (!nInfo) {
+              let aux = document.querySelector('.scroll-fi');
+              if (aux) nInfo = aux.closest('eui-card') || aux.closest('.eui-card') || aux.parentElement;
+            }
 
-            // Combinamos todo en un solo bloque de texto para la IA
+            if (!nGen && !nDesc && !nTask) return null;
+
+            // 2. Limpieza de nodos (con bucles clásicos en lugar de .map o funciones auxiliares)
+            const secciones = [nGen, nDesc, nTask, nInfo];
+            const textos = [];
+
+            for (let i = 0; i < secciones.length; i++) {
+              let el = secciones[i];
+              if (!el) {
+                textos.push("");
+                continue;
+              }
+              // Clonamos y limpiamos
+              let clone = el.cloneNode(true) as HTMLElement;
+              let basuras = clone.querySelectorAll('button, eui-icon-svg, .eui-icon, svg, sedia-show-more');
+              for (let j = 0; j < basuras.length; j++) {
+                basuras[j].remove();
+              }
+              textos.push(clone.innerText || clone.textContent || "");
+            }
+
+            // 3. Montamos el prompt final estructurado para la IA
             return `
               --- INFORMACIÓN GENERAL ---
-              ${infoGeneral}
+              ${textos[0]}
 
               --- DESCRIPCIÓN Y PROCESO ---
-              ${infoDetallada}
+              ${textos[1]}
+              ${textos[2] ? '\n--- DESCRIPCIÓN DE LA TAREA (TASK) ---\n' + textos[2] : ''}
 
               --- ENLACES ADICIONALES ---
-              ${linksExtra}
+              ${textos[3]}
             `.replace(/\s+/g, ' ').trim();
           });
 
           if (textoExtraido && textoExtraido.length > 100) {
             textoWebCompleto = textoExtraido;
-            console.log(`   ✅ Extraída información relevante (${textoWebCompleto.length} caracteres).`);
+            console.log(`   ✅ Extraída información web exitosamente (${textoWebCompleto.length} caracteres).`);
           } else {
-            console.log(`   ⚠️ No se encontraron las secciones #scroll-gi o #scroll-sep, usando API.`);
+            console.log(`   ⚠️ No se encontró la estructura HTML esperada, usando resumen de la API.`);
           }
         } catch (err: any) {
           console.error(`   ❌ Error en scraping de la web: ${err.message}`);
