@@ -145,70 +145,62 @@ export async function fetchTEDGrants() {
         }
 
         // ========================================================
-        // 2. NUEVO: DEEP SCRAPING DE LA PÁGINA WEB (PUPPETEER)
+        // 2. NUEVO: DEEP SCRAPING OPTIMIZADO (LISTA BLANCA)
         // ========================================================
         console.log(`   🌐 Navegando a la web oficial: ${urlGenerada}`);
-        let textoWebCompleto = extractFTText(grantItem.summary, "Sin resumen"); // Fallback
+        let textoWebCompleto = extractFTText(grantItem.summary, "Sin resumen"); 
 
         const detailPage = await browser.newPage();
         try {
           await detailPage.goto(urlGenerada, { waitUntil: "networkidle2", timeout: 45000 });
-          // Esperamos a que Angular pinte la web
-          await new Promise(resolve => setTimeout(resolve, 4000));
+          // Esperamos a que Angular termine de cargar los datos
+          await new Promise(resolve => setTimeout(resolve, 5000));
 
           const textoExtraido = await detailPage.evaluate(() => {
-            // 1. Buscamos el contenedor más central posible
-            const mainBox = document.querySelector('app-prospect-details') 
-              || document.querySelector('app-topic-details')
-              || document.querySelector('.eui-main-content')
-              || document.body;
+            // Buscamos específicamente las secciones que contienen la info útil
+            const sectionGeneral = document.querySelector('#scroll-gi');
+            const sectionDescription = document.querySelector('#scroll-sep');
+            const sectionFurtherInfo = document.querySelector('#scroll-fi');
 
-            // Hacemos una copia invisible para poder "romperla" sin afectar la navegación
-            const clone = mainBox.cloneNode(true) as HTMLElement;
+            if (!sectionGeneral && !sectionDescription) return null;
 
-            // 2. ¡Destrucción de basura web! Eliminamos nodos HTML de navegación, cookies y pie de página
-            const basuras = [
-              'header', 'footer', 'nav', 'eui-header', 'eui-footer', 
-              '.eui-cookie-consent', '#cookie-banner', '.eui-global-menu',
-              'app-internal-navigation'
-            ];
-            basuras.forEach(selector => {
-              const elementos = clone.querySelectorAll(selector);
-              elementos.forEach(el => el.remove());
-            });
+            // Función interna para limpiar el texto de un elemento
+            const cleanText = (el: Element | null) => {
+              if (!el) return "";
+              // Clonamos para no romper la visualización por si acaso
+              const clone = el.cloneNode(true) as HTMLElement;
+              // Quitamos botones de "Show more" o iconos que puedan ensuciar
+              const basuras = clone.querySelectorAll('button, eui-icon-svg, .eui-icon');
+              basuras.forEach(b => b.remove());
 
-            let text = clone.innerText || "";
+              return clone.innerText || clone.textContent || "";
+            };
 
-            // 3. Normalizamos los saltos de línea y espacios
-            text = text.replace(/\s+/g, ' ');
+            const infoGeneral = cleanText(sectionGeneral);
+            const infoDetallada = cleanText(sectionDescription);
+            const linksExtra = cleanText(sectionFurtherInfo);
 
-            // 4. Filtro Regex: Eliminamos frases hechas que se hayan colado en el texto plano
-            const filtrosTexto = [
-              /This site uses cookies.*?Accept only essential cookies/gi,
-              /EU F&T Portal Sign in EN Home.*?Calls for proposals/gi,
-              /Internal navigation.*?Submission service/gi,
-              /© \d{4} European Commission.*/gi,
-              /\| About \| Accessibility \| Free text search.*/gi,
-              /Start submission Start submission/gi
-            ];
+            // Combinamos todo en un solo bloque de texto para la IA
+            return `
+              --- INFORMACIÓN GENERAL ---
+              ${infoGeneral}
 
-            filtrosTexto.forEach(regex => {
-              text = text.replace(regex, '');
-            });
+              --- DESCRIPCIÓN Y PROCESO ---
+              ${infoDetallada}
 
-            return text.trim();
+              --- ENLACES ADICIONALES ---
+              ${linksExtra}
+            `.replace(/\s+/g, ' ').trim();
           });
 
-          // Si después de limpiar nos queda texto útil, lo usamos. 
-          // Si nos queda vacío, usamos el resumen de la API para no enviar algo en blanco a la IA.
-          if (textoExtraido && textoExtraido.length > 50) {
+          if (textoExtraido && textoExtraido.length > 100) {
             textoWebCompleto = textoExtraido;
-            console.log(`   ✅ Extraída la web limpia: ${textoWebCompleto.substring(0, 100)}...`);
+            console.log(`   ✅ Extraída información relevante (${textoWebCompleto.length} caracteres).`);
           } else {
-            console.log(`   ⚠️ Web sin descripción detallada tras limpieza, se usará la API.`);
+            console.log(`   ⚠️ No se encontraron las secciones #scroll-gi o #scroll-sep, usando API.`);
           }
         } catch (err: any) {
-          console.error(`   ❌ Error al renderizar la web, usando API: ${err.message}`);
+          console.error(`   ❌ Error en scraping de la web: ${err.message}`);
         } finally {
           await detailPage.close();
         }
