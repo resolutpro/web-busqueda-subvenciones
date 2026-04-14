@@ -153,6 +153,15 @@ export async function fetchTEDGrants() {
           continue;
         }
 
+        const descartada = await db.query.scrapingState.findFirst({
+          where: eq(scrapingState.key, `discarded_ted_${idLimpio}`)
+        });
+
+        if (descartada) {
+          console.log(`   ⏭️ Ya fue evaluada y DESCARTADA anteriormente. Saltando...`);
+          continue; 
+        }
+
         // ========================================================
         // 2. NUEVO: DEEP SCRAPING OPTIMIZADO (LISTA BLANCA)
         // ========================================================
@@ -291,7 +300,16 @@ export async function fetchTEDGrants() {
             console.error("   ❌ Error guardando:", dbErr);
           }
         } else {
-           console.log(`   ❌ Descartada por la IA: No encaja con ninguna empresa.`);
+           // 3. NUEVO: Si la IA la rechaza, la metemos en la lista negra para siempre
+           console.log(`   ❌ Descartada por la IA. Guardando en lista negra para no volver a evaluarla.`);
+           try {
+             await db.insert(scrapingState).values({
+               key: `discarded_ted_${idLimpio}`,
+               value: 'true'
+             }).onConflictDoNothing(); // onConflictDoNothing evita errores si ya existiera por algún motivo
+           } catch (err) {
+             console.error("   ❌ Error guardando en lista negra:", err);
+           }
         }
       } 
 
