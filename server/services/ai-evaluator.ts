@@ -149,3 +149,42 @@ export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, co
     return { evaluaciones: [] };
   }
 }
+
+export async function evaluateGrantRelevance(titulo: string, tipo: string) {
+  try {
+    const prompt = `
+    Actúa como un clasificador rápido de boletines oficiales. Tu objetivo es determinar si un anuncio es una SUBVENCIÓN o AYUDA PÚBLICA a la que podría optar una empresa privada o autónomo.
+
+    Título del ${tipo}:
+    "${titulo}"
+
+    REGLAS DE CLASIFICACIÓN (Descarte estricto):
+    - MARCA COMO RELEVANTE (isRelevant: true) SOLO SI el título indica claramente ser una: subvención, ayuda, fondo, incentivo, financiación, bonificación, o convocatoria de apoyo económico.
+    - DESCARTA INMEDIATAMENTE (isRelevant: false) si se trata de: multas, sanciones, expropiaciones, licitaciones/contratos públicos (ej. "Licitación para...", "Contrato de suministro..."), extravío de títulos, nombramientos de funcionarios, subastas, o resoluciones puramente administrativas de las que una empresa no puede sacar dinero.
+    - Ante la duda, si el título es ambiguo y no hace referencia a fondos o ayudas, descártalo.
+
+    Responde estrictamente en formato JSON con esta estructura:
+    {
+      "isRelevant": boolean,
+      "razon": "Justificación muy breve (1 línea) del motivo de tu decisión."
+    }
+    `;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini", // Cambiado al modelo de OpenAI rápido y barato
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      temperature: 0, // CRÍTICO: 0 creatividad. Queremos respuestas deterministas.
+    });
+
+    const content = response.choices[0].message.content;
+    if (content) {
+      return JSON.parse(content);
+    }
+    return { isRelevant: false, razon: "Respuesta vacía de la IA" };
+  } catch (error) {
+    // También actualizamos el log para que no diga DeepSeek
+    console.error("Error al consultar a OpenAI (evaluateGrantRelevance):", error);
+    return { isRelevant: false, razon: "Error de conexión con la API" };
+  }
+}

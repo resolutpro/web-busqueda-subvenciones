@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { boeGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
-import { checkGrantWithAI } from "./ai-evaluator";
+import { checkGrantWithAI, evaluateGrantRelevance } from "./ai-evaluator";
 
 // 🛠️ NUEVO: Función para comparar identificadores (ej. BOE-B-2024-999 vs BOE-B-2024-1000)
 // Extrae el año y el número final para compararlos matemáticamente y no alfabéticamente.
