@@ -61,7 +61,7 @@ export async function checkGrantWithAI(grantDetails: any, companies: {id: number
           .join("\n\n");
 
         // Disparamos el webhook hacia OpenClaw
-        await notifyAgentOfMatch(source, grantDetails, reasonText);
+        //await notifyAgentOfMatch(source, grantDetails, reasonText);
       }
       // ------------------------------------
 
@@ -156,7 +156,7 @@ export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, co
         })
         .join("\n\n");
 
-      await notifyAgentOfMatch(source, grantDetails, reasonText);
+      //await notifyAgentOfMatch(source, grantDetails, reasonText);
     }
     // ------------------------------------
 

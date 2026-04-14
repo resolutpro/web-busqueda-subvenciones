@@ -54,8 +54,8 @@ const MODOS_BUSQUEDA = [
 export async function scrapeBDNS() {
   console.log("🚀 Iniciando scraping BDNS (Filtros Órgano Convocante + Multi-Empresa)...");
 
-  const oneYearAgo = new Date();
-  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const oneMonthAgo = new Date();
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
   const todasLasEmpresas = await db.select().from(companies);
   if (todasLasEmpresas.length === 0) {
@@ -227,8 +227,8 @@ export async function scrapeBDNS() {
             break; 
           }
 
-          if (currentDate && currentDate < oneYearAgo) {
-            console.log(`🛑 Deteniendo: Fecha antigua.`);
+          if (currentDate && currentDate < oneMonthAgo) {
+            console.log(`🛑 Deteniendo: Fecha antigua (más de 1 mes).`);
             keepScraping = false;
             break; 
           }
