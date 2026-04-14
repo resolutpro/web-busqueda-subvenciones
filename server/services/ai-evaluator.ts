@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { Company } from "@shared/schema";
-import { notifyAgentOfMatch } from "./openclaw-notifier";
+// import { notifyAgentOfMatch } from "./openclaw-notifier"; // Descomentar cuando lo uses
 
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY 
@@ -14,95 +14,71 @@ function detectSource(grantDetails: any): 'BDNS' | 'BOE' | 'TED' | 'Desconocido'
   return 'Desconocido';
 }
 
+// ============================================================================
+// FUNCIÓN 1: checkGrantWithAI
+// ============================================================================
 export async function checkGrantWithAI(grantDetails: any, companies: {id: number, name: string, description: string}[]) {
   try {
     const prompt = `
-      Actúa como un experto en subvenciones. Tengo esta nueva convocatoria:
-      ${JSON.stringify(grantDetails)}
+    Actúa como un Auditor Senior de Subvenciones Públicas y Ayudas Estatales. Tu trabajo es analizar convocatorias y determinar si aplican a un listado de empresas.
 
-      Y tengo esta lista de empresas con sus perfiles:
-      ${JSON.stringify(companies)}
+    ERES EXTREMADAMENTE RIGUROSO Y CONSERVADOR. Tienes estrictamente prohibido forzar encajes. Un "falso positivo" es un error crítico.
 
-      Evalúa la subvención contra CADA empresa. 
-      Responde estrictamente en formato JSON.
+    REGLAS DE EXCLUSIÓN ESTRICTAS (Descarte Automático):
+    1. UBICACIÓN GEOGRÁFICA: Si la convocatoria es regional/local y la empresa no tiene sede allí -> DESCARTAR.
+    2. TAMAÑO DE LA EMPRESA: Si exige PYME y es Gran Empresa (o viceversa) -> DESCARTAR.
+    3. OBJETO: Lo que hace la empresa debe cuadrar directamente con la finalidad de la ayuda.
+    4. ROL DE BENEFICIARIO DIRECTO: La empresa debe ser el destinatario final para mejorar SU PROPIO negocio. DESCARTA INMEDIATAMENTE a la empresa si solo cuadra porque puede ofrecer servicios de consultoría, gestión o formación a terceros.
 
-      IMPORTANTE: Devuelve en el array "matches" ÚNICAMENTE las empresas para las que la subvención sea relevante y cumplan los requisitos. 
-      Si una empresa NO cuadra (es descartada), OMÍTELA completamente del resultado JSON para ahorrar tokens.
+    Perfiles de las empresas:
+    ${JSON.stringify(companies)}
 
-      Estructura esperada:
-      {
-        "matches": [
-          {
-            "companyId": id_de_la_empresa,
-            "companyName": "nombre de la empresa",
-            "cuadra": true,
-            "razon": "Explicación detallada y útil de por qué cuadra perfectamente."
-          }
-        ]
-      }
+    Detalles de la convocatoria:
+    ${JSON.stringify(grantDetails)}
+
+    TAREA: Evalúa CADA empresa. Si una empresa falla en UNA SOLA regla, OMÍTELA completamente del resultado JSON para ahorrar tokens.
+
+    Responde estrictamente en formato JSON con esta estructura:
+    {
+      "matches": [
+        {
+          "companyId": id_de_la_empresa,
+          "companyName": "nombre de la empresa",
+          "cuadra": true,
+          "razon": "Justificación objetiva detallando cómo cumple con Ubicación, Tamaño, Sector y Objeto."
+        }
+      ]
+    }
     `;
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
+      temperature: 0, // CRÍTICO: Cero creatividad
     });
 
     const content = response.choices[0].message.content;
     const result = content ? JSON.parse(content) : { matches: [] };
 
-      // --- NUEVA LÓGICA DE NOTIFICACIÓN ---
-      if (result.matches && result.matches.length > 0) {
-        const source = detectSource(grantDetails);
+    if (result.matches && result.matches.length > 0) {
+      const source = detectSource(grantDetails);
+      const reasonText = result.matches
+        .map((m: any) => `- EMPRESA: ${m.companyName} (ID: ${m.companyId})\n  MOTIVO: ${m.razon}`)
+        .join("\n\n");
+      // await notifyAgentOfMatch(source, grantDetails, reasonText);
+    }
 
-        // Creamos un texto legible uniendo todas las empresas que hicieron match
-        const reasonText = result.matches
-          .map((m: any) => `- EMPRESA: ${m.companyName} (ID: ${m.companyId})\n  MOTIVO: ${m.razon}`)
-          .join("\n\n");
-
-        // Disparamos el webhook hacia OpenClaw
-        //await notifyAgentOfMatch(source, grantDetails, reasonText);
-      }
-      // ------------------------------------
-
-      return result;
-    } catch (error) {
-    console.error("Error al consultar a DeepSeek:", error);
+    return result;
+  } catch (error) {
+    console.error("Error al consultar a OpenAI (checkGrantWithAI):", error);
     return { matches: [] };
   }
 }
 
-export async function evaluateGrantRelevance(titulo: string, tipo: string) {
-  try {
-    const prompt = `
-      Actúa como un experto en subvenciones. Tengo el siguiente título de un ${tipo}:
-      "${titulo}"
-
-      ¿Es este anuncio relevante para una empresa que busca subvenciones o ayudas públicas? 
-      Responde estrictamente en formato JSON con la siguiente estructura:
-      {
-        "isRelevant": boolean,
-        "razon": "breve explicación de por qué es relevante o no"
-      }
-    `;
-
-    const response = await openai.chat.completions.create({
-      model: "deepseek-chat", // 3️⃣ CAMBIO AQUÍ
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-    });
-
-    const content = response.choices[0].message.content;
-    if (content) {
-      return JSON.parse(content);
-    }
-    return { isRelevant: false, razon: "Respuesta vacía de la IA" };
-  } catch (error) {
-    console.error("Error al consultar a DeepSeek:", error);
-    return { isRelevant: false, razon: "Error de conexión con la IA" };
-  }
-}
-
+// ============================================================================
+// FUNCIÓN 2: checkGrantForMultipleCompaniesWithAI
+// ============================================================================
 export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, companies: Company[]) {
   try {
     const companiesInfo = companies.map(c => 
@@ -110,44 +86,53 @@ export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, co
     ).join("\n\n");
 
     const prompt = `
-      Actúa como un experto en subvenciones. Tengo las siguientes empresas bajo mi gestión:
+    Actúa como un Auditor Senior de Subvenciones Públicas y Ayudas Estatales. Tu trabajo es analizar convocatorias y determinar si aplican a un listado de empresas.
 
-      ${companiesInfo}
+    ERES EXTREMADAMENTE RIGUROSO Y CONSERVADOR. Tienes estrictamente prohibido forzar encajes. Un "falso positivo" es un error crítico.
 
-      Y he extraído esta información de una nueva convocatoria de la BDNS:
-      ${JSON.stringify(grantDetails)}
+    REGLAS DE EXCLUSIÓN ESTRICTAS (Descarte Automático):
+    1. UBICACIÓN GEOGRÁFICA: Si la convocatoria es regional/local y la empresa no tiene sede allí -> DESCARTAR.
+    2. TAMAÑO DE LA EMPRESA: Si exige PYME y es Gran Empresa (o viceversa) -> DESCARTAR.
+    3. OBJETO: Lo que hace la empresa debe cuadrar directamente con la finalidad de la ayuda.
+    4. ROL DE BENEFICIARIO DIRECTO: La empresa debe ser el destinatario final para mejorar SU PROPIO negocio. DESCARTA INMEDIATAMENTE a la empresa si solo cuadra porque puede ofrecer servicios de consultoría, gestión o formación a terceros.
 
-      ¿Cumple esta subvención con los requisitos de alguna de estas empresas? 
-      Evalúa CADA empresa individualmente.
+    Perfiles de las empresas:
+    ---
+    ${companiesInfo}
+    ---
 
-      Responde estrictamente en formato JSON.
-      IMPORTANTE: Devuelve en el array "evaluaciones" ÚNICAMENTE las empresas que SÍ cumplen los requisitos. Si una empresa no cuadra, no la incluyas en el array bajo ningún concepto.
+    Detalles de la convocatoria:
+    ---
+    ${JSON.stringify(grantDetails)}
+    ---
 
-      Estructura esperada:
-      {
-        "evaluaciones": [
-          {
-            "companyId": <ID numérico de la empresa>,
-            "cuadra": true,
-            "razon": "breve explicación de por qué cuadra para esta empresa en concreto"
-          }
-        ]
-      }
+    TAREA: Evalúa CADA empresa. Si una empresa falla en UNA SOLA regla, no la incluyas.
+
+    Responde estrictamente en formato JSON. Si ninguna cumple, devuelve un array vacío [].
+    Estructura requerida:
+    {
+      "evaluaciones": [
+        {
+          "companyId": <ID numérico de la empresa>,
+          "cuadra": true,
+          "razon": "Justificación objetiva detallando cómo cumple con Ubicación, Tamaño, Sector y Objeto."
+        }
+      ]
+    }
     `;
 
     const response = await openai.chat.completions.create({
-      model: "deepseek-chat", // 4️⃣ CAMBIO AQUÍ
+      model: "gpt-4o-mini", // Cambiado de deepseek a gpt-4o-mini
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
+      temperature: 0, // Añadida la temperatura a 0
     });
 
     const content = response.choices[0].message.content;
     const result = content ? JSON.parse(content) : { evaluaciones: [] };
 
-    // --- NUEVA LÓGICA DE NOTIFICACIÓN ---
     if (result.evaluaciones && result.evaluaciones.length > 0) {
       const source = detectSource(grantDetails);
-
       const reasonText = result.evaluaciones
         .map((evalData: any) => {
           const comp = companies.find(c => c.id === evalData.companyId);
@@ -155,14 +140,12 @@ export async function checkGrantForMultipleCompaniesWithAI(grantDetails: any, co
           return `- EMPRESA: ${nombreEmpresa}\n  MOTIVO: ${evalData.razon}`;
         })
         .join("\n\n");
-
-      //await notifyAgentOfMatch(source, grantDetails, reasonText);
+      // await notifyAgentOfMatch(source, grantDetails, reasonText);
     }
-    // ------------------------------------
 
     return result;
   } catch (error) {
-    console.error("Error al consultar a DeepSeek en bulk:", error);
+    console.error("Error al consultar a OpenAI en bulk:", error);
     return { evaluaciones: [] };
   }
 }
