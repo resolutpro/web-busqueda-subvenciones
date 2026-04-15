@@ -20,7 +20,7 @@ const MODOS_BUSQUEDA = [
   { id: 'O', nombre: 'Otros órganos', seleccionarEspecificos: 'ALL' }
 ];
 
-// Lista de identidades falsas (User-Agents) para evadir el bloqueo
+// LISTA DE IDENTIDADES (USER-AGENTS) PARA EVADIR EL BLOQUEO
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -61,6 +61,9 @@ export async function scrapeBDNS() {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 }); 
 
+    // ==========================================
+    // BUCLE EXTERNO: POR CADA MODO DE BÚSQUEDA
+    // ==========================================
     for (const modo of MODOS_BUSQUEDA) {
       console.log(`\n======================================================`);
       console.log(`🔎 INICIANDO BÚSQUEDA PARA: ${modo.nombre}`);
@@ -75,6 +78,7 @@ export async function scrapeBDNS() {
 
       console.log(`📍 Último código procesado para ${modo.nombre}: ${stopCodeLimit}`);
 
+      // 1. Ir a la web desde cero
       await page.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
       await new Promise(resolve => setTimeout(resolve, 5000));
 
@@ -145,6 +149,9 @@ export async function scrapeBDNS() {
         continue; 
       }
 
+      // ==========================================
+      // BUCLE INTERNO: PAGINACIÓN DE RESULTADOS
+      // ==========================================
       let keepScraping = true;
       let pageCounter = 1;
 
@@ -207,7 +214,7 @@ export async function scrapeBDNS() {
 
           if (convocatoria.urlDetalle) {
 
-            // Pausa humana
+            // ✅ PAUSA ALEATORIA "JITTER" (Entre 4 y 9 segundos)
             const pausaHumana = Math.floor(Math.random() * 5000) + 4000;
             console.log(`   ⏳ Pausa humana de ${(pausaHumana/1000).toFixed(1)}s...`);
             await new Promise(resolve => setTimeout(resolve, pausaHumana));
@@ -224,11 +231,11 @@ export async function scrapeBDNS() {
               let detailPage: any = null; 
 
               try {
-                // ✅ MAGIA DE INCÓGNITO: Creamos un contexto limpio y virgen sin cookies pasadas
-                context = await browser.createIncognitoBrowserContext();
+                // ✅ MAGIA DE INCÓGNITO: Versión moderna de createBrowserContext
+                context = await browser.createBrowserContext();
                 detailPage = await context.newPage();
 
-                // ✅ ROTACIÓN DE IDENTIDAD: El servidor nos verá como un usuario distinto
+                // ✅ ROTACIÓN DE IDENTIDAD: Seleccionamos un Agente aleatorio
                 const randomUserAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
                 await detailPage.setUserAgent(randomUserAgent);
 
@@ -247,8 +254,8 @@ export async function scrapeBDNS() {
                   await new Promise(resolve => setTimeout(resolve, 12000)); 
                 }
 
-                // Reducimos a 45s, porque si una ventana en incógnito no carga en 45s, es el servidor, no nosotros.
-                await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
+                // Subimos el timeout absoluto a 90 segundos
+                await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 90000 });
                 await new Promise(resolve => setTimeout(resolve, 3000));
 
                 detallesExtraidos = await detailPage.evaluate(() => {
@@ -277,7 +284,7 @@ export async function scrapeBDNS() {
                       valor = elementoValor.innerText || elementoValor.textContent || "";
                       valor = valor.replace(/\n+/g, ' - ').replace(/\s+/g, ' ').trim();
                       if (valor.startsWith('- ')) valor = valor.substring(2);
-                      if (valor.endsWith(' -')) valor = valor.substring(0, valor.length - 2);
+                      if (valor.endsWith(' -')) valor = substring(0, valor.length - 2);
                     }
                     res[clave] = valor || "";
                   });
@@ -289,7 +296,7 @@ export async function scrapeBDNS() {
               } catch (err: any) {
                  console.error(`   ❌ Error web en (${currentCode}): ${err.message}`);
               } finally {
-                // ✅ LIMPIEZA ABSOLUTA: Cerramos la pestaña Y el contexto de incógnito para no dejar rastro
+                // ✅ LIMPIEZA ABSOLUTA: Cerramos pestaña y contexto
                 if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(() => {});
                 if (context) await context.close().catch(() => {});
               }
