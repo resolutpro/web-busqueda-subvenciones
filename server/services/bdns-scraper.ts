@@ -119,6 +119,17 @@ export async function scrapeBDNS() {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 }); 
 
+    console.log("🎭 [Configuración] Aplicando User-Agent y cabeceras de usuario real...");
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Upgrade-Insecure-Requests': '1'
+    });
+
     // ==========================================
     // BUCLE EXTERNO: POR CADA MODO DE BÚSQUEDA
     // ==========================================
@@ -136,16 +147,20 @@ export async function scrapeBDNS() {
 
       console.log(`📍 Último código procesado para ${modo.nombre}: ${stopCodeLimit}`);
 
-      // 1. Ir a la web desde cero (Le devolvemos networkidle2 para asegurar que Angular carga bien, y 90 segundos)
-      console.log("🌐 Conectando a la web de BDNS...");
-      await page.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { 
-        waitUntil: "networkidle2", 
-        timeout: 90000 
-      });
-      await new Promise(resolve => setTimeout(resolve, 8000));
-      
       try {
+        // 1. Ir a la web desde cero
+        console.log("🌐 [Paso 1/5] Conectando a la web principal (Infosubvenciones)...");
+        await page.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { 
+          waitUntil: "domcontentloaded", // Vital: no esperamos a la red, solo al HTML
+          timeout: 90000 
+        });
+
+        console.log("⏳ [Paso 1.5] Esperando 10 segundos a que Angular dibuje la interfaz...");
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        console.log("✅ Interfaz cargada.");
+
         // 2. Abrir el panel de "Órgano convocante"
+        console.log("📂 [Paso 2/5] Buscando y abriendo el panel 'Órgano convocante'...");
         await page.evaluate(() => {
           const headers = Array.from(document.querySelectorAll('mat-expansion-panel-header'));
           const panelOrgano = headers.find(h => h.textContent?.includes('Órgano convocante'));
@@ -153,9 +168,10 @@ export async function scrapeBDNS() {
             (panelOrgano as HTMLElement).click();
           }
         });
-        await new Promise(resolve => setTimeout(resolve, 1500)); 
+        await new Promise(resolve => setTimeout(resolve, 2000)); 
 
         // 3. Seleccionar el Radio Button (C, A, L, O)
+        console.log(`🔘 [Paso 3/5] Seleccionando radio button de modo: ${modo.id}...`);
         await page.evaluate((radioValue) => {
           const radioInput = document.querySelector(`input[type="radio"][value="${radioValue}"]`);
           if (radioInput) {
@@ -163,13 +179,11 @@ export async function scrapeBDNS() {
             if (radioContainer) (radioContainer as HTMLElement).click();
           }
         }, modo.id);
-
-        console.log(`🔘 Seleccionado radio button: ${modo.nombre}`);
         await new Promise(resolve => setTimeout(resolve, 3000)); 
 
         // 4. Marcar los checkboxes pertinentes (o todos)
         if (modo.seleccionarEspecificos) {
-          console.log(`☑️ Aplicando checkboxes para ${modo.nombre}...`);
+          console.log(`☑️ [Paso 4/5] Aplicando checkboxes para ${modo.nombre}...`);
 
           await page.evaluate((elementosDeseados) => {
             const nodos = document.querySelectorAll('mat-tree-node');
@@ -198,20 +212,25 @@ export async function scrapeBDNS() {
           }, modo.seleccionarEspecificos);
 
           await new Promise(resolve => setTimeout(resolve, 3000));
+        } else {
+           console.log(`☑️ [Paso 4/5] No requiere checkboxes específicos.`);
         }
 
         // 5. Clicar en "Filtrar"
-        console.log("🖱️ Haciendo clic en 'Filtrar'...");
+        console.log("🖱️ [Paso 5/5] Haciendo clic en 'Filtrar' y esperando resultados...");
         await page.evaluate(() => {
           const botones = Array.from(document.querySelectorAll('button'));
           const btnFiltrar = botones.find(btn => btn.textContent?.toLowerCase().includes('filtrar'));
           if (btnFiltrar) (btnFiltrar as HTMLElement).click();
         });
 
+        console.log("⏳ Esperando 8 segundos a que la tabla de resultados se actualice...");
         await new Promise(resolve => setTimeout(resolve, 8000));
+        console.log("✅ Resultados listos. Iniciando paginación...");
 
-      } catch (err) {
-        console.error(`❌ Error configurando filtros para ${modo.nombre}. Saltando a la siguiente sección.`, err);
+      } catch (err: any) {
+        console.error(`❌ CRÍTICO: Error configurando filtros para ${modo.nombre}. Motivo exacto: ${err.message}`);
+        console.log("Saltando a la siguiente sección (Modo de búsqueda)...");
         continue; 
       }
 
