@@ -36,7 +36,6 @@ export async function scrapeBDNS() {
   isBdnsScrapingRunning = true;
   console.log("🚀 Iniciando scraping BDNS (Filtros Órgano Convocante + Multi-Empresa)...");
 
-  // Limpieza de memoria RAM previa
   console.log("🧹 Limpiando procesos fantasma de Chromium en la memoria RAM...");
   try { execSync("pkill -f chromium"); } catch (e) {}
   try { execSync("pkill -f chrome"); } catch (e) {}
@@ -64,7 +63,6 @@ export async function scrapeBDNS() {
     try { chromiumPath = execSync("which chromium").toString().trim(); } 
     catch (e) { chromiumPath = "chromium"; }
 
-    // UN SOLO NAVEGADOR PARA TODO EL PROCESO (Ahorro de RAM)
     browser = await puppeteer.launch({
       headless: true,
       executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
@@ -74,7 +72,7 @@ export async function scrapeBDNS() {
         '--disable-dev-shm-usage', 
         '--disable-gpu',
         '--disable-software-rasterizer',
-        '--js-flags="--max-old-space-size=256"' // Fuerza a Chrome a usar poca RAM
+        '--js-flags="--max-old-space-size=256"' 
       ]
     });
 
@@ -216,7 +214,6 @@ export async function scrapeBDNS() {
           }
 
           if (currentCode <= stopCodeLimit) {
-            console.log(`⏭️ Saltando: Código BDNS ${currentCode} ya procesado.`);
             continue; 
           }
 
@@ -224,14 +221,15 @@ export async function scrapeBDNS() {
 
           if (convocatoria.urlDetalle) {
 
-            // Pausa humana
-            const pausaHumana = Math.floor(Math.random() * 3000) + 2000;
+            // ✅ PAUSA BASE MÁS LARGA (Entre 8 y 14 segundos)
+            const pausaHumana = Math.floor(Math.random() * 6000) + 8000;
+            console.log(`   ⏳ Pausa humana de ${(pausaHumana/1000).toFixed(1)}s...`);
             await new Promise(resolve => setTimeout(resolve, pausaHumana));
 
             let detallesExtraidos: any = null;
             let extraccionExitosa = false;
             let intentos = 0;
-            const maxIntentos = 2; 
+            const maxIntentos = 3; 
 
             while (!extraccionExitosa && intentos < maxIntentos) {
               intentos++;
@@ -239,7 +237,6 @@ export async function scrapeBDNS() {
               let detailPage: any = null; 
 
               try {
-                // ✅ CLAVE: Usamos createBrowserContext. Mismo navegador, sesión aislada, cero consumo extra.
                 context = await browser.createBrowserContext();
                 detailPage = await context.newPage();
 
@@ -257,10 +254,13 @@ export async function scrapeBDNS() {
                 });
 
                 if (intentos > 1) {
-                  console.log(`   ⚠️ Reintento ${intentos}/${maxIntentos}.`);
-                  await new Promise(resolve => setTimeout(resolve, 8000)); 
+                  // 🚨 LA CUARENTENA: Si llegamos aquí es porque falló (el gobierno nos bloqueó la IP)
+                  // Entramos en modo avión durante 65 segundos para que su cortafuegos nos perdone.
+                  console.log(`   🚨 [CORTAFUEGOS DETECTADO] Reintento ${intentos}/${maxIntentos}. Entrando en CUARENTENA de 65 segundos para resetear bloqueo de IP...`);
+                  await new Promise(resolve => setTimeout(resolve, 65000)); 
                 }
 
+                // Navegamos con un timeout estricto de 45s. Si tarda más, es bloqueo.
                 await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
                 await new Promise(resolve => setTimeout(resolve, 2000));
 
@@ -283,6 +283,7 @@ export async function scrapeBDNS() {
                   titulos.forEach(titulo => {
                     let clave = (titulo.textContent || "").replace('·', '').trim().replace(/\s+/g, ' '); 
                     if (!clave) return;
+
                     const elementoValor = titulo.nextElementSibling as HTMLElement;
                     let valor = "";
                     if (elementoValor) {
@@ -301,7 +302,7 @@ export async function scrapeBDNS() {
               } catch (err: any) {
                  console.error(`   ❌ Error web en (${currentCode}): ${err.message}`);
               } finally {
-                // MUY IMPORTANTE: Destruimos la burbuja de sesión para limpiar todo
+                // MUY IMPORTANTE: Cerramos la pestaña y el contexto para vaciar la RAM
                 if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(() => {});
                 if (context) await context.close().catch(() => {});
               }
@@ -401,7 +402,6 @@ export async function scrapeBDNS() {
   } catch (error) {
     console.error("💀 Error CRÍTICO (Nivel Superior):", error);
   } finally {
-    // ABRIR CERROJO AL TERMINAR
     isBdnsScrapingRunning = false;
     if (browser) await browser.close().catch(() => {});
     console.log("🔓 Cerrojo del scraper BDNS liberado.");
