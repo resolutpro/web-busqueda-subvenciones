@@ -79,24 +79,29 @@ export async function scrapeBDNS() {
       // Es normal que dé error si no hay ningún proceso abierto, lo ignoramos.
     }
     
-    let chromiumPath = "";
-    try { 
-      chromiumPath = execSync("which chromium").toString().trim(); 
-    } catch (e) { 
-      // ✅ Si falla el which, forzamos la ruta típica de Replit (NixOS)
-      chromiumPath = "/nix/var/nix/profiles/default/bin/chromium"; 
+    // 1. Buscamos la ruta de la forma más segura posible en Replit
+    let chromiumPath = process.env.PUPPETEER_EXECUTABLE_PATH || "";
+    if (!chromiumPath) {
+      try { 
+        chromiumPath = execSync("which chromium").toString().trim(); 
+      } catch (e) { 
+        chromiumPath = "/nix/var/nix/profiles/default/bin/chromium"; 
+      }
     }
 
+    // 2. Lanzamos Puppeteer con los argumentos optimizados para evitar el crasheo
     const browser = await puppeteer.launch({
-      headless: true, // Asegura que esté en true
+      headless: true,
       executablePath: chromiumPath,
       args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox', 
-        '--disable-dev-shm-usage', 
+        '--disable-dev-shm-usage', // Vital para contenedores con poca RAM
         '--disable-gpu',
-        '--no-zygote', // Ayuda a evitar el error del WS endpoint en contenedores
-        '--single-process' // Reduce el consumo de RAM inicial
+        '--no-zygote',
+        '--disable-software-rasterizer', // Evita crasheos gráficos en Linux
+        '--remote-debugging-port=9222'   // SOLUCIÓN AL WS TIMEOUT: Forza un puerto seguro
+        // ⚠️ Nota: Nos aseguramos de NO incluir '--single-process' aquí
       ]
     });
 
