@@ -247,8 +247,13 @@ export async function scrapeBDNS() {
           if (convocatoria.urlDetalle) {
             const detailPage = await browser.newPage();
             try {
-              await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "networkidle2", timeout: 30000 });
-              await new Promise(resolve => setTimeout(resolve, 2000));
+              // ✅ CAMBIO 1: 'domcontentloaded' solo espera el HTML, ignorando imágenes/scripts lentos.
+              // Aumentamos también el timeout a 45s por si el servidor está espeso.
+              await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
+
+              // ✅ CAMBIO 2: Esperamos 3 segundos. Le damos tiempo a Angular para pintar los datos
+              // y al mismo tiempo hacemos de "freno" para que el servidor no nos bloquee por ir tan rápido.
+              await new Promise(resolve => setTimeout(resolve, 3000));
 
               const detallesExtraidos = await detailPage.evaluate(() => {
                 // Lista exacta de los campos de interés
