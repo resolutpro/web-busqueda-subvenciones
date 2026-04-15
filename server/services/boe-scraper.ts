@@ -123,17 +123,25 @@ export async function fetchDailyBOE(targetDate: Date = new Date()) {
     }
 
     // --------------------------------------------------------------------------------
-    // 5. PROCESAMIENTO CON LA IA (Solo llega aquí si hay nuevos identificadores)
+    // 5. PROCESAMIENTO CON LA IA (Optimizado en Lotes)
     // --------------------------------------------------------------------------------
+
+    // 1. OBTENER TODOS LOS IDs EXISTENTES DE GOLPE (Rapidísimo)
+    const existentesEnBD = await db.select({ id: boeGrants.identificador }).from(boeGrants);
+    const setIdsExistentes = new Set(existentesEnBD.map(g => g.id));
+
+    // 2. ARRAY PARA ACUMULAR LAS INSERCIONES
+    const subvencionesAInsertar = [];
+
     for (const item of allItems) {
       const identificador = item.identificador;
       const titulo = item.titulo;
       const urlPdf = typeof item.url_pdf === 'object' ? item.url_pdf.texto : item.url_pdf;
       const urlHtml = item.url_html;
-      const deptoNombre = item._departamentoNombre; // Lo recuperamos
+      const deptoNombre = item._departamentoNombre; 
 
-      const existing = await db.select().from(boeGrants).where(eq(boeGrants.identificador, identificador));
-      if (existing.length > 0) continue;
+      // 3. COMPROBACIÓN EN MEMORIA (No toca la base de datos)
+      if (setIdsExistentes.has(identificador)) continue;
 
       const aiResult = await evaluateGrantRelevance(titulo, "Anuncio BOE");
 
@@ -155,17 +163,24 @@ export async function fetchDailyBOE(targetDate: Date = new Date()) {
         }
 
         if (algunaEmpresaCuadra) {
-          await db.insert(boeGrants).values({
+          // 4. GUARDAR EN EL ARRAY, NO EN LA BASE DE DATOS TODAVÍA
+          subvencionesAInsertar.push({
             identificador,
             titulo,
             departamento: deptoNombre,
-            fechaPublicacion: targetDate, // Se guarda con la fecha que hemos consultado
+            fechaPublicacion: targetDate, 
             urlPdf: urlPdf,
             urlHtml: urlHtml,
             aiAnalysis: iaAnalisisMasivo, 
           });
         }
       }
+    }
+
+    // 5. INSERTAR TODO DE GOLPE AL FINAL (Tarda milisegundos)
+    if (subvencionesAInsertar.length > 0) {
+      console.log(`\n💾 [BOE] Insertando ${subvencionesAInsertar.length} subvenciones en la base de datos de golpe...`);
+      await db.insert(boeGrants).values(subvencionesAInsertar);
     }
 
     // --------------------------------------------------------------------------------

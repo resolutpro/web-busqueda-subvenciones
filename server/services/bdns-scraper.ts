@@ -91,7 +91,7 @@ export async function scrapeBDNS() {
       console.log(`🔎 INICIANDO BÚSQUEDA PARA: ${modo.nombre}`);
       console.log(`======================================================\n`);
 
-      // === NUEVO: Obtenemos el límite específico para este modo ===
+      // === Obtenemos el límite específico para este modo ===
       const stateKey = `highest_bdns_code_${modo.id}`;
       const stateRecord = await db.query.scrapingState.findFirst({
         where: eq(scrapingState.key, stateKey),
@@ -213,6 +213,10 @@ export async function scrapeBDNS() {
           break;
         }
 
+        // === NUEVO: Arrays de acumulación para inserción masiva al final de la página ===
+        const subvencionesAInsertarEnEstaPagina = [];
+        let updatedHighestCode = highestCodeThisSession;
+
         for (let i = 0; i < convocatoriasPagina.length; i++) {
           const convocatoria = convocatoriasPagina[i];
           if (!convocatoria) continue;
@@ -247,7 +251,7 @@ export async function scrapeBDNS() {
               await new Promise(resolve => setTimeout(resolve, 2000));
 
               const detallesExtraidos = await detailPage.evaluate(() => {
-                // Lista exacta de los campos que te interesan
+                // Lista exacta de los campos de interés
                 const camposInteres = [
                   "Órgano convocante", 
                   "Sede electrónica para la presentación de solicitudes",
@@ -279,33 +283,25 @@ export async function scrapeBDNS() {
                 const titulos = document.querySelectorAll('.titulo-campo');
 
                 titulos.forEach(titulo => {
-                  // 1. Extraer y limpiar el título del campo (quitando el punto '·' y estandarizando espacios)
                   let clave = (titulo.textContent || "").replace('·', '').trim();
-                  clave = clave.replace(/\s+/g, ' '); // Evitar dobles espacios que rompan el match
+                  clave = clave.replace(/\s+/g, ' '); 
 
                   if (!clave) return;
 
-                  // 2. Extraer el valor del siguiente elemento HTML
                   const elementoValor = titulo.nextElementSibling as HTMLElement;
                   let valor = "";
 
                   if (elementoValor) {
-                    // Usar innerText permite capturar los diferentes <div> anidados (como en Órgano convocante)
                     valor = elementoValor.innerText || elementoValor.textContent || "";
-
-                    // Reemplazar los saltos de línea internos por " - " para que quede legible y en una línea
                     valor = valor.replace(/\n+/g, ' - ').replace(/\s+/g, ' ').trim();
 
-                    // Limpiar guiones residuales al inicio o final
                     if (valor.startsWith('- ')) valor = valor.substring(2);
                     if (valor.endsWith(' -')) valor = valor.substring(0, valor.length - 2);
                   }
 
-                  // 3. Guardar el campo si coincide con la lista de interés
                   if (camposInteres.includes(clave)) {
                     res[clave] = valor || "";
                   } else {
-                    // Guardamos por defecto los demás también por si añaden campos nuevos útiles
                     res[clave] = valor || "";
                   }
                 });
@@ -313,7 +309,6 @@ export async function scrapeBDNS() {
                 return res;
               });
 
-              // Actualizamos el código limpio en la infoCompleta
               const infoCompleta = { ...convocatoria, codigoBDNS: codigoLimpio, ...detallesExtraidos };
 
               let algunaEmpresaCuadra = false;
@@ -329,8 +324,9 @@ export async function scrapeBDNS() {
               }
 
               if (algunaEmpresaCuadra) {
-                await db.insert(bdnsGrants).values({
-                  codigoBDNS: codigoLimpio, // Usamos el código limpio para la DB
+                // === NUEVO: Acumulamos en lugar de insertar directamente en la base de datos ===
+                subvencionesAInsertarEnEstaPagina.push({
+                  codigoBDNS: codigoLimpio, 
                   titulo: convocatoria.titulo,
                   organoConvocante: convocatoria.organoConvocante,
                   fechaRegistro: currentDate,
@@ -338,23 +334,46 @@ export async function scrapeBDNS() {
                   detallesExtraidos: detallesExtraidos, 
                   iaAnalisis: iaAnalisisMasivo
                 });
+                console.log(`   ⏳ Añadida a la cola de inserción de esta página.`);
               }
 
             } catch (err: any) {
-               console.error(`   ❌ Error detalle ${currentCode}`);
+               console.error(`   ❌ Error en detalle de convocatoria ${currentCode}:`, err.message);
             } finally {
               await detailPage.close();
 
-              // === Guardamos el progreso específico en la DB ===
-              if (currentCode > highestCodeThisSession) {
-                highestCodeThisSession = currentCode;
-                await db.insert(scrapingState).values({ key: stateKey, value: highestCodeThisSession.toString() })
-                  .onConflictDoUpdate({ target: scrapingState.key, set: { value: highestCodeThisSession.toString(), updatedAt: new Date() } });
+              // === NUEVO: Actualizamos la variable en RAM, luego al final de la página lo subimos a la DB ===
+              if (currentCode > updatedHighestCode) {
+                updatedHighestCode = currentCode;
               }
             }
           }
+        } // Fin del For de elementos de la página
+
+        // ==========================================
+        // INSERCIÓN MASIVA AL TERMINAR LA PÁGINA
+        // ==========================================
+        if (subvencionesAInsertarEnEstaPagina.length > 0) {
+          try {
+            console.log(`\n💾 [BDNS - ${modo.nombre}] Insertando ${subvencionesAInsertarEnEstaPagina.length} subvenciones válidas en BD...`);
+            await db.insert(bdnsGrants).values(subvencionesAInsertarEnEstaPagina);
+          } catch (dbErr) {
+            console.error("❌ Error guardando bloque de subvenciones BDNS:", dbErr);
+          }
         }
 
+        // Actualizamos el estado "highest_bdns_code" de golpe por página (mucho más eficiente)
+        if (updatedHighestCode > highestCodeThisSession) {
+          highestCodeThisSession = updatedHighestCode;
+          try {
+            await db.insert(scrapingState).values({ key: stateKey, value: highestCodeThisSession.toString() })
+              .onConflictDoUpdate({ target: scrapingState.key, set: { value: highestCodeThisSession.toString(), updatedAt: new Date() } });
+          } catch (err) {
+            console.error("❌ Error guardando estado de scraping BDNS:", err);
+          }
+        }
+
+        // Lógica de Paginación para ir a la siguiente página
         if (keepScraping) {
           const SELECTOR_BOTON_SIGUIENTE = 'button.mat-paginator-navigation-next'; 
           const estaDeshabilitado = await page.$('button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled');

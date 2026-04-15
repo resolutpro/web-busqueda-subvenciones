@@ -30,7 +30,7 @@ export async function fetchTEDGrants() {
   const arrayEmpresasIA = todasLasEmpresas.map(e => ({
     id: e.id,
     name: e.name,
-    description: `Tamaño:d ${e.size || 'No definido'}. Ubicación: ${e.location || 'No definida'}. Sector/CNAE: ${e.cnae || 'No definido'}. Actividad: ${e.description}`
+    description: `Tamaño: ${e.size || 'No definido'}. Ubicación: ${e.location || 'No definida'}. Sector/CNAE: ${e.cnae || 'No definido'}. Actividad: ${e.description}`
   }));
 
   // === PREPARAMOS EL NAVEGADOR INVISIBLE (PUPPETEER) ===
@@ -87,6 +87,10 @@ export async function fetchTEDGrants() {
         keepFetching = false; break; 
       }
 
+      // Acumuladores masivos para esta página específica
+      const subvencionesAInsertarEnEstaPagina = [];
+      const estadosAInsertarEnEstaPagina = []; // Para la lista negra
+
       for (let i = 0; i < resultados.length; i++) {
         const grantItem = resultados[i];
         const meta = grantItem.metadata || grantItem; 
@@ -131,7 +135,7 @@ export async function fetchTEDGrants() {
           urlGenerada = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/${identificadorRaw.toLowerCase()}`;
         }
 
-        
+
         const deadlineRaw = extractFTText(meta.deadlineDate || grantItem.deadlineDate, "");
         totalProcesadas++;
         console.log(`\n[F&T ${totalProcesadas}] Analizando: ${tituloReal.substring(0, 60)}...`);
@@ -281,38 +285,53 @@ export async function fetchTEDGrants() {
         }
 
         if (algunaEmpresaCuadra) { 
-          try {
-            await db.insert(tedGrants).values({
-              identificador: grant.identificador,
-              titulo: grant.titulo,
-              pais: grant.pais,
-              fechaPublicacion: grant.fecha,
-              urlDetalle: grant.url,
-              detallesExtraidos: { 
-                programa: grant.cpv,
-                fechaCierre: deadlineRaw, 
-                descripcion: grant.descripcion 
-              }, 
-              aiAnalysis: iaAnalisisMasivo 
-            });
-            console.log(`   💾 Guardado correctamente en Base de Datos.`);
-          } catch (dbErr) {
-            console.error("   ❌ Error guardando:", dbErr);
-          }
+           // EN LUGAR DE HACER AWAIT DB.INSERT, LO GUARDAMOS EN EL ARRAY
+           subvencionesAInsertarEnEstaPagina.push({
+             identificador: grant.identificador,
+             titulo: grant.titulo,
+             pais: grant.pais,
+             fechaPublicacion: grant.fecha,
+             urlDetalle: grant.url,
+             detallesExtraidos: { 
+               programa: grant.cpv,
+               fechaCierre: deadlineRaw, 
+               descripcion: grant.descripcion 
+             }, 
+             aiAnalysis: iaAnalisisMasivo 
+           });
+           console.log(`   ⏳ Añadida a la cola de inserción de esta página.`);
         } else {
-           // 3. NUEVO: Si la IA la rechaza, la metemos en la lista negra para siempre
-           console.log(`   ❌ Descartada por la IA. Guardando en lista negra para no volver a evaluarla.`);
-           try {
-             await db.insert(scrapingState).values({
-               key: `discarded_ted_${idLimpio}`,
-               value: 'true'
-             }).onConflictDoNothing(); // onConflictDoNothing evita errores si ya existiera por algún motivo
-           } catch (err) {
-             console.error("   ❌ Error guardando en lista negra:", err);
-           }
+           // Si la IA la rechaza, la metemos en la lista negra para la cola de inserción
+           console.log(`   ❌ Descartada por la IA. Guardando en cola de lista negra.`);
+           estadosAInsertarEnEstaPagina.push({
+             key: `discarded_ted_${idLimpio}`,
+             value: 'true'
+           });
         }
-      } 
+      } // FIN DEL BUCLE FOR (for (let i = 0; i < resultados.length; i++))
 
+      // ==========================================
+      // INSERCIÓN MASIVA AL TERMINAR LA PÁGINA
+      // ==========================================
+      if (subvencionesAInsertarEnEstaPagina.length > 0) {
+        try {
+          console.log(`\n💾 [F&T] Insertando ${subvencionesAInsertarEnEstaPagina.length} subvenciones válidas en BD...`);
+          await db.insert(tedGrants).values(subvencionesAInsertarEnEstaPagina);
+        } catch (dbErr) {
+          console.error("❌ Error guardando bloque de subvenciones:", dbErr);
+        }
+      }
+
+      if (estadosAInsertarEnEstaPagina.length > 0) {
+        try {
+          console.log(`💾 [F&T] Insertando ${estadosAInsertarEnEstaPagina.length} descartes en lista negra...`);
+          await db.insert(scrapingState).values(estadosAInsertarEnEstaPagina).onConflictDoNothing();
+        } catch (err) {
+          console.error("❌ Error guardando bloque en lista negra:", err);
+        }
+      }
+
+      // Preparar la siguiente página
       if (resultados.length < 50) {
         console.log(`🛑 Fin de los resultados en SEDIA.`);
         keepFetching = false;
