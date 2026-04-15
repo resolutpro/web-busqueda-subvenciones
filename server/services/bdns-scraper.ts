@@ -70,14 +70,34 @@ export async function scrapeBDNS() {
   }));
 
   try {
+    // Limpieza de procesos zombie de Chromium antes de empezar
+    try {
+      console.log("🧹 Limpiando procesos de Chromium colgados en memoria...");
+      execSync("pkill -f chromium");
+      execSync("pkill -f chrome");
+    } catch (e) {
+      // Es normal que dé error si no hay ningún proceso abierto, lo ignoramos.
+    }
+    
     let chromiumPath = "";
-    try { chromiumPath = execSync("which chromium").toString().trim(); } 
-    catch (e) { chromiumPath = "chromium"; }
+    try { 
+      chromiumPath = execSync("which chromium").toString().trim(); 
+    } catch (e) { 
+      // ✅ Si falla el which, forzamos la ruta típica de Replit (NixOS)
+      chromiumPath = "/nix/var/nix/profiles/default/bin/chromium"; 
+    }
 
     const browser = await puppeteer.launch({
-      headless: true,
-      executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+      headless: true, // Asegura que esté en true
+      executablePath: chromiumPath,
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox', 
+        '--disable-dev-shm-usage', 
+        '--disable-gpu',
+        '--no-zygote', // Ayuda a evitar el error del WS endpoint en contenedores
+        '--single-process' // Reduce el consumo de RAM inicial
+      ]
     });
 
     const page = await browser.newPage();

@@ -1,5 +1,6 @@
 { pkgs }: {
   deps = [
+    pkgs.killall
     pkgs.nix-update
     pkgs.nodejs_20      # CORREGIDO: Guion bajo obligatoro
     pkgs.postgresql_16
