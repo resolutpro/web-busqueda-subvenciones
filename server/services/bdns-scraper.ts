@@ -245,112 +245,121 @@ export async function scrapeBDNS() {
           console.log(`[${i+1}/${convocatoriasPagina.length}] Analizando ${currentCode}...`);
 
           if (convocatoria.urlDetalle) {
-            const detailPage = await browser.newPage();
-            try {
-              // ✅ CAMBIO 1: 'domcontentloaded' solo espera el HTML, ignorando imágenes/scripts lentos.
-              // Aumentamos también el timeout a 45s por si el servidor está espeso.
-              await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
+            let detallesExtraidos: any = null;
+            let extraccionExitosa = false;
+            let intentos = 0;
+            const maxIntentos = 2; // Intentaremos cargar la web un máximo de 2 veces
 
-              // ✅ CAMBIO 2: Esperamos 3 segundos. Le damos tiempo a Angular para pintar los datos
-              // y al mismo tiempo hacemos de "freno" para que el servidor no nos bloquee por ir tan rápido.
-              await new Promise(resolve => setTimeout(resolve, 3000));
+            // 1. BUCLE DE EXTRACCIÓN WEB CON REINTENTOS
+            while (!extraccionExitosa && intentos < maxIntentos) {
+              intentos++;
+              const detailPage = await browser.newPage();
 
-              const detallesExtraidos = await detailPage.evaluate(() => {
-                // Lista exacta de los campos de interés
-                const camposInteres = [
-                  "Órgano convocante", 
-                  "Sede electrónica para la presentación de solicitudes",
-                  "Código BDNS", 
-                  "Mecanismo de Recuperación y Resiliencia", 
-                  "Fecha de registro",
-                  "Tipo de convocatoria", 
-                  "Presupuesto total de la convocatoria", 
-                  "Instrumento de ayuda",
-                  "Título de la convocatoria en español", 
-                  "Tipo de beneficiario elegible",
-                  "Sector económico del beneficiario", 
-                  "Región de impacto", 
-                  "Finalidad (política de gasto)",
-                  "Título de las Bases reguladoras", 
-                  "Dirección electrónica de las bases reguladoras",
-                  "¿El extracto de la convocatoria se publica en diario oficial?",
-                  "¿Se puede solicitar indefinidamente?", 
-                  "Fecha de inicio del periodo de solicitud",
-                  "SA Number (Referencia de ayuda de estado)", 
-                  "SA Number (Enlace UE)",
-                  "Cofinanciado con Fondos UE", 
-                  "Sector de productos", 
-                  "Reglamento (UE)", 
-                  "Objetivos"
-                ];
-
-                const res: Record<string, string> = {};
-                const titulos = document.querySelectorAll('.titulo-campo');
-
-                titulos.forEach(titulo => {
-                  let clave = (titulo.textContent || "").replace('·', '').trim();
-                  clave = clave.replace(/\s+/g, ' '); 
-
-                  if (!clave) return;
-
-                  const elementoValor = titulo.nextElementSibling as HTMLElement;
-                  let valor = "";
-
-                  if (elementoValor) {
-                    valor = elementoValor.innerText || elementoValor.textContent || "";
-                    valor = valor.replace(/\n+/g, ' - ').replace(/\s+/g, ' ').trim();
-
-                    if (valor.startsWith('- ')) valor = valor.substring(2);
-                    if (valor.endsWith(' -')) valor = valor.substring(0, valor.length - 2);
-                  }
-
-                  if (camposInteres.includes(clave)) {
-                    res[clave] = valor || "";
+              try {
+                // ✅ MAGIA ANTI-BLOQUEO: Bloqueamos imágenes, CSS y tipografías para no saturar al servidor
+                await detailPage.setRequestInterception(true);
+                detailPage.on('request', (req) => {
+                  const type = req.resourceType();
+                  // Angular necesita 'script', 'xhr' y 'fetch'. Bloqueamos todo lo estético.
+                  if (type === 'image' || type === 'stylesheet' || type === 'font' || type === 'media') {
+                    req.abort();
                   } else {
-                    res[clave] = valor || "";
+                    req.continue();
                   }
                 });
 
-                return res;
-              });
-
-              const infoCompleta = { ...convocatoria, codigoBDNS: codigoLimpio, ...detallesExtraidos };
-
-              let algunaEmpresaCuadra = false;
-              let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
-              const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
-              iaAnalisisMasivo.matches = matchesArray;
-
-              for (const match of matchesArray) {
-                if (match.cuadra) {
-                  algunaEmpresaCuadra = true;
-                  console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
+                if (intentos > 1) {
+                  console.log(`   ⏳ El servidor no responde. Pausando 8s y reintentando (Intento ${intentos}/${maxIntentos})...`);
+                  await new Promise(resolve => setTimeout(resolve, 8000)); 
                 }
-              }
 
-              if (algunaEmpresaCuadra) {
-                // === NUEVO: Acumulamos en lugar de insertar directamente en la base de datos ===
-                subvencionesAInsertarEnEstaPagina.push({
-                  codigoBDNS: codigoLimpio, 
-                  titulo: convocatoria.titulo,
-                  organoConvocante: convocatoria.organoConvocante,
-                  fechaRegistro: currentDate,
-                  urlDetalle: convocatoria.urlDetalle,
-                  detallesExtraidos: detallesExtraidos, 
-                  iaAnalisis: iaAnalisisMasivo
+                // Subimos el timeout a 60s por precaución
+                await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
+                await new Promise(resolve => setTimeout(resolve, 3000));
+
+                detallesExtraidos = await detailPage.evaluate(() => {
+                  const camposInteres = [
+                    "Órgano convocante", "Sede electrónica para la presentación de solicitudes",
+                    "Código BDNS", "Mecanismo de Recuperación y Resiliencia", "Fecha de registro",
+                    "Tipo de convocatoria", "Presupuesto total de la convocatoria", "Instrumento de ayuda",
+                    "Título de la convocatoria en español", "Tipo de beneficiario elegible",
+                    "Sector económico del beneficiario", "Región de impacto", "Finalidad (política de gasto)",
+                    "Título de las Bases reguladoras", "Dirección electrónica de las bases reguladoras",
+                    "¿El extracto de la convocatoria se publica en diario oficial?",
+                    "¿Se puede solicitar indefinidamente?", "Fecha de inicio del periodo de solicitud",
+                    "SA Number (Referencia de ayuda de estado)", "SA Number (Enlace UE)",
+                    "Cofinanciado con Fondos UE", "Sector de productos", "Reglamento (UE)", "Objetivos"
+                  ];
+
+                  const res: Record<string, string> = {};
+                  const titulos = document.querySelectorAll('.titulo-campo');
+
+                  titulos.forEach(titulo => {
+                    let clave = (titulo.textContent || "").replace('·', '').trim().replace(/\s+/g, ' '); 
+                    if (!clave) return;
+
+                    const elementoValor = titulo.nextElementSibling as HTMLElement;
+                    let valor = "";
+
+                    if (elementoValor) {
+                      valor = elementoValor.innerText || elementoValor.textContent || "";
+                      valor = valor.replace(/\n+/g, ' - ').replace(/\s+/g, ' ').trim();
+                      if (valor.startsWith('- ')) valor = valor.substring(2);
+                      if (valor.endsWith(' -')) valor = valor.substring(0, valor.length - 2);
+                    }
+                    res[clave] = valor || "";
+                  });
+                  return res;
                 });
-                console.log(`   ⏳ Añadida a la cola de inserción de esta página.`);
-              }
 
-            } catch (err: any) {
-               console.error(`   ❌ Error en detalle de convocatoria ${currentCode}:`, err.message);
-            } finally {
-              await detailPage.close();
+                extraccionExitosa = true; // Si llegamos aquí sin error de Timeout, fue un éxito
 
-              // === NUEVO: Actualizamos la variable en RAM, luego al final de la página lo subimos a la DB ===
-              if (currentCode > updatedHighestCode) {
-                updatedHighestCode = currentCode;
+              } catch (err: any) {
+                 console.error(`   ❌ Error web en ${currentCode} (Intento ${intentos}): ${err.message}`);
+              } finally {
+                // MUY IMPORTANTE: Cerramos la pestaña inmediatamente para liberar al servidor de la BDNS
+                await detailPage.close();
               }
+            } // Fin del while de reintentos
+
+            // ========================================================
+            // 2. FASE DE IA (Solo se ejecuta si la extracción web funcionó)
+            // ========================================================
+            if (extraccionExitosa && detallesExtraidos) {
+               const infoCompleta = { ...convocatoria, codigoBDNS: codigoLimpio, ...detallesExtraidos };
+
+               let algunaEmpresaCuadra = false;
+               // La IA ahora trabaja tranquila sin tener una pestaña del navegador abierta de fondo
+               let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
+               const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
+               iaAnalisisMasivo.matches = matchesArray;
+
+               for (const match of matchesArray) {
+                 if (match.cuadra) {
+                   algunaEmpresaCuadra = true;
+                   console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
+                 }
+               }
+
+               if (algunaEmpresaCuadra) {
+                 subvencionesAInsertarEnEstaPagina.push({
+                   codigoBDNS: codigoLimpio, 
+                   titulo: convocatoria.titulo,
+                   organoConvocante: convocatoria.organoConvocante,
+                   fechaRegistro: currentDate,
+                   urlDetalle: convocatoria.urlDetalle,
+                   detallesExtraidos: detallesExtraidos, 
+                   iaAnalisis: iaAnalisisMasivo
+                 });
+                 console.log(`   ⏳ Añadida a la cola de inserción de esta página.`);
+               }
+
+               // Actualizamos el ID máximo en RAM
+               if (currentCode > updatedHighestCode) {
+                 updatedHighestCode = currentCode;
+               }
+            } else {
+               console.log(`   ⏭️ Saltando convocatoria ${currentCode} definitivamente tras fallar la carga web.`);
             }
           }
         } // Fin del For de elementos de la página
