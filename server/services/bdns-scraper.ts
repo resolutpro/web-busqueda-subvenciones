@@ -137,9 +137,31 @@ export async function scrapeBDNS() {
 
       console.log(`📍 Último código procesado para ${modo.nombre}: ${stopCodeLimit}`);
 
-      // 1. Ir a la web desde cero
-      await page.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      // --- NUEVO: Bloqueamos imágenes y recursos pesados en la página principal ---
+      // Solo lo hacemos si no se ha activado ya en esta página
+      try {
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+          // Dejamos pasar los estilos (CSS) porque Angular a veces los necesita para los clics
+          if (['image', 'font', 'media'].includes(req.resourceType())) {
+            req.abort();
+          } else {
+            req.continue();
+          }
+        });
+      } catch (e) {
+        // Ignoramos el error si la intercepción ya estaba activada en pasadas del bucle
+      }
+
+      // 1. Ir a la web desde cero (Cambiamos networkidle2 por domcontentloaded y damos 90 seg)
+      console.log("🌐 Conectando a la web de BDNS...");
+      await page.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { 
+        waitUntil: "domcontentloaded", 
+        timeout: 90000 // Le damos 90 segundos porque el servidor del Estado a veces va muy lento
+      });
+
+      // Esperamos generosamente a que Angular termine de pintar los menús
+      await new Promise(resolve => setTimeout(resolve, 8000));
 
       try {
         // 2. Abrir el panel de "Órgano convocante"
