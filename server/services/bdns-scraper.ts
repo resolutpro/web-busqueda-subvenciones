@@ -331,16 +331,24 @@ export async function scrapeBDNS() {
                const infoCompleta = { ...convocatoria, codigoBDNS: codigoLimpio, ...detallesExtraidos };
                try {
                  let algunaEmpresaCuadra = false;
-                 let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
-                 const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
-                 iaAnalisisMasivo.matches = matchesArray;
 
-                 for (const match of matchesArray) {
-                   if (match.cuadra) {
-                     algunaEmpresaCuadra = true;
-                     console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
-                   }
-                 }
+                  // Simulamos una respuesta vacía de la IA para que no guarde nada en BD
+                  let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
+                  const matchesArray: any[] = [];
+                  iaAnalisisMasivo.matches = matchesArray;
+
+                  /* === CÓDIGO ORIGINAL COMENTADO PARA QUE NO LLAME A OPENAI ===
+                  let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
+                  const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
+                  iaAnalisisMasivo.matches = matchesArray;
+
+                  for (const match of matchesArray) {
+                    if (match.cuadra) {
+                      algunaEmpresaCuadra = true;
+                      console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
+                    }
+                  }
+                  ============================================================== */
 
                  if (algunaEmpresaCuadra) {
                    subvencionesAInsertarEnEstaPagina.push({
