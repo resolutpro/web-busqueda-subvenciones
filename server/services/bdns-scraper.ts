@@ -217,23 +217,28 @@ export async function scrapeBDNS() {
           const convocatoria = convocatoriasPagina[i];
           if (!convocatoria) continue;
 
-          const currentCode = parseInt(convocatoria.codigoBDNS, 10);
+          // 1. Limpieza de caracteres invisibles para evitar NaN
+          const codigoLimpio = convocatoria.codigoBDNS.replace(/\D/g, '');
+          const currentCode = parseInt(codigoLimpio, 10);
           const currentDate = parseBDNSDate(convocatoria.fechaRegistro);
 
-          // === Aquí la validación se hace con el límite propio de esta categoría ===
-          if (currentCode <= stopCodeLimit) {
-            console.log(`🛑 Deteniendo: Código BDNS ${currentCode} ya procesado en [${modo.nombre}].`);
-            keepScraping = false;
-            break; 
-          }
+          // Fallback por si la celda venía vacía o corrupta
+          if (isNaN(currentCode)) continue;
 
+          // 2. PARADA DEFINITIVA: Fecha antigua (más de 1 mes)
           if (currentDate && currentDate < oneMonthAgo) {
-            console.log(`🛑 Deteniendo: Fecha antigua (más de 1 mes).`);
+            console.log(`🛑 Deteniendo: Fecha antigua (más de 1 mes) en [${modo.nombre}].`);
             keepScraping = false;
             break; 
           }
 
-          console.log(`[${i+1}/${convocatoriasPagina.length}] Analizando ${convocatoria.codigoBDNS}...`);
+          // 3. SALTO INDIVIDUAL: Si el código es viejo, lo saltamos pero seguimos buscando en la página
+          if (currentCode <= stopCodeLimit) {
+            console.log(`⏭️ Saltando: Código BDNS ${currentCode} ya procesado en [${modo.nombre}].`);
+            continue; 
+          }
+
+          console.log(`[${i+1}/${convocatoriasPagina.length}] Analizando ${currentCode}...`);
 
           if (convocatoria.urlDetalle) {
             const detailPage = await browser.newPage();
@@ -296,7 +301,7 @@ export async function scrapeBDNS() {
                     if (valor.endsWith(' -')) valor = valor.substring(0, valor.length - 2);
                   }
 
-                  // 3. Guardar el campo si coincide con la lista de interés (o puedes quitar el 'if' para guardarlos absolutamente todos)
+                  // 3. Guardar el campo si coincide con la lista de interés
                   if (camposInteres.includes(clave)) {
                     res[clave] = valor || "";
                   } else {
@@ -308,7 +313,8 @@ export async function scrapeBDNS() {
                 return res;
               });
 
-              const infoCompleta = { ...convocatoria, ...detallesExtraidos };
+              // Actualizamos el código limpio en la infoCompleta
+              const infoCompleta = { ...convocatoria, codigoBDNS: codigoLimpio, ...detallesExtraidos };
 
               let algunaEmpresaCuadra = false;
               let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
@@ -324,7 +330,7 @@ export async function scrapeBDNS() {
 
               if (algunaEmpresaCuadra) {
                 await db.insert(bdnsGrants).values({
-                  codigoBDNS: convocatoria.codigoBDNS,
+                  codigoBDNS: codigoLimpio, // Usamos el código limpio para la DB
                   titulo: convocatoria.titulo,
                   organoConvocante: convocatoria.organoConvocante,
                   fechaRegistro: currentDate,
@@ -335,7 +341,7 @@ export async function scrapeBDNS() {
               }
 
             } catch (err: any) {
-               console.error(`   ❌ Error detalle ${convocatoria.codigoBDNS}`);
+               console.error(`   ❌ Error detalle ${currentCode}`);
             } finally {
               await detailPage.close();
 
@@ -347,7 +353,7 @@ export async function scrapeBDNS() {
               }
             }
           }
-        } 
+        }
 
         if (keepScraping) {
           const SELECTOR_BOTON_SIGUIENTE = 'button.mat-paginator-navigation-next'; 
