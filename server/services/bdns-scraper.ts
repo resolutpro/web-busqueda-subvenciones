@@ -5,14 +5,12 @@ import { bdnsGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import { checkGrantWithAI } from "./ai-evaluator";
 
-// Auxiliar para parsear fechas DD/MM/YYYY
 function parseBDNSDate(dateStr: string) {
   if (!dateStr || dateStr === "") return null;
   const [day, month, year] = dateStr.split('/');
   return new Date(`${year}-${month}-${day}`);
 }
 
-// DEFINICIÓN DE LOS 4 FILTROS EXCLUYENTES
 const MODOS_BUSQUEDA = [
   { id: 'C', nombre: 'Administración del Estado', seleccionarEspecificos: 'ALL' },
   { id: 'A', nombre: 'Comunidades autónomas', seleccionarEspecificos: [ 'ANDALUCÍA', 'ARAGÓN', 'CASTILLA Y LEÓN', 'COMUNITAT VALENCIANA', 'EXTREMADURA', 'GALICIA' ] },
@@ -20,7 +18,6 @@ const MODOS_BUSQUEDA = [
   { id: 'O', nombre: 'Otros órganos', seleccionarEspecificos: 'ALL' }
 ];
 
-// LISTA DE IDENTIDADES (USER-AGENTS)
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -51,15 +48,22 @@ export async function scrapeBDNS() {
     try { chromiumPath = execSync("which chromium").toString().trim(); } 
     catch (e) { chromiumPath = "chromium"; }
 
-    // =========================================================
-    // NAVEGADOR PRINCIPAL (Solo para mantener la tabla abierta)
-    // =========================================================
-    const mainBrowser = await puppeteer.launch({
+    const browserOptions = {
       headless: true,
       executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-    });
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox', 
+        '--disable-dev-shm-usage', 
+        '--disable-gpu',
+        '--disable-software-rasterizer'
+      ]
+    };
 
+    // =========================================================
+    // NAVEGADOR PRINCIPAL (Para no perder la paginación)
+    // =========================================================
+    const mainBrowser = await puppeteer.launch(browserOptions);
     const page = await mainBrowser.newPage();
     await page.setViewport({ width: 1280, height: 800 }); 
 
@@ -103,10 +107,8 @@ export async function scrapeBDNS() {
 
         if (modo.seleccionarEspecificos) {
           console.log(`☑️ Aplicando checkboxes para ${modo.nombre}...`);
-
           await page.evaluate((elementosDeseados) => {
             const nodos = document.querySelectorAll('mat-tree-node');
-
             for (let i = 0; i < nodos.length; i++) {
               const nodo = nodos[i];
               const labelElement = nodo.querySelector('.mat-checkbox-label');
@@ -129,7 +131,6 @@ export async function scrapeBDNS() {
               }
             }
           }, modo.seleccionarEspecificos);
-
           await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
@@ -184,6 +185,13 @@ export async function scrapeBDNS() {
         const subvencionesAInsertarEnEstaPagina = [];
         let updatedHighestCode = highestCodeThisSession;
 
+        // =========================================================
+        // NAVEGADOR SECUNDARIO (Se recicla para evitar bloqueos)
+        // =========================================================
+        let detailBrowser = await puppeteer.launch(browserOptions);
+        let detailBrowserStartTime = Date.now();
+        let itemsProcesadosConEsteNavegador = 0;
+
         for (let i = 0; i < convocatoriasPagina.length; i++) {
           const convocatoria = convocatoriasPagina[i];
           if (!convocatoria) continue;
@@ -209,9 +217,17 @@ export async function scrapeBDNS() {
 
           if (convocatoria.urlDetalle) {
 
-            // Pausa humana
-            const pausaHumana = Math.floor(Math.random() * 4000) + 3000;
-            console.log(`   ⏳ Pausa humana de ${(pausaHumana/1000).toFixed(1)}s...`);
+            // ✅ RECICLAJE DE NAVEGADOR: Si han pasado más de 4 minutos o hemos procesado 15 items
+            const tiempoTranscurrido = Date.now() - detailBrowserStartTime;
+            if (tiempoTranscurrido > 240000 || itemsProcesadosConEsteNavegador >= 15) {
+              console.log(`   ♻️ Reciclando navegador para evadir WAF (Transcurrido: ${(tiempoTranscurrido/1000).toFixed(0)}s)...`);
+              await detailBrowser.close().catch(() => {});
+              detailBrowser = await puppeteer.launch(browserOptions);
+              detailBrowserStartTime = Date.now();
+              itemsProcesadosConEsteNavegador = 0;
+            }
+
+            const pausaHumana = Math.floor(Math.random() * 3000) + 2000;
             await new Promise(resolve => setTimeout(resolve, pausaHumana));
 
             let detallesExtraidos: any = null;
@@ -219,24 +235,14 @@ export async function scrapeBDNS() {
             let intentos = 0;
             const maxIntentos = 2; 
 
-            // ==============================================================
-            // 🚀 OPCIÓN NUCLEAR: ABRIR UN NAVEGADOR NUEVO POR CADA DETALLE
-            // ==============================================================
             while (!extraccionExitosa && intentos < maxIntentos) {
               intentos++;
-              let tempBrowser: any = null; 
+              let detailPage: any = null; 
 
               try {
-                // Instanciamos un navegador completamente independiente
-                tempBrowser = await puppeteer.launch({
-                  headless: true,
-                  executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
-                  args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-                });
+                // Usamos el navegador secundario que se recicla periódicamente
+                detailPage = await detailBrowser.newPage();
 
-                const detailPage = await tempBrowser.newPage();
-
-                // Rotación de identidad
                 const randomUserAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
                 await detailPage.setUserAgent(randomUserAgent);
 
@@ -251,13 +257,12 @@ export async function scrapeBDNS() {
                 });
 
                 if (intentos > 1) {
-                  console.log(`   ⚠️ Reintento ${intentos}/${maxIntentos}. Enfriando conexión 10s...`);
-                  await new Promise(resolve => setTimeout(resolve, 10000)); 
+                  console.log(`   ⚠️ Reintento ${intentos}/${maxIntentos}.`);
+                  await new Promise(resolve => setTimeout(resolve, 8000)); 
                 }
 
-                // Navegamos al detalle (Timeout de 60s, más que suficiente para una conexión fresca)
-                await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
-                await new Promise(resolve => setTimeout(resolve, 3000));
+                await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
+                await new Promise(resolve => setTimeout(resolve, 2000));
 
                 detallesExtraidos = await detailPage.evaluate(() => {
                   const camposInteres = [ 
@@ -278,7 +283,6 @@ export async function scrapeBDNS() {
                   titulos.forEach(titulo => {
                     let clave = (titulo.textContent || "").replace('·', '').trim().replace(/\s+/g, ' '); 
                     if (!clave) return;
-
                     const elementoValor = titulo.nextElementSibling as HTMLElement;
                     let valor = "";
                     if (elementoValor) {
@@ -297,17 +301,17 @@ export async function scrapeBDNS() {
               } catch (err: any) {
                  console.error(`   ❌ Error web en (${currentCode}): ${err.message}`);
               } finally {
-                // 💣 MATAMOS EL NAVEGADOR TEMPORAL. Borrado absoluto de rastros.
-                if (tempBrowser) {
-                  await tempBrowser.close().catch(() => {});
+                if (detailPage && !detailPage.isClosed()) {
+                  await detailPage.close().catch(() => {});
                 }
               }
             }
 
+            itemsProcesadosConEsteNavegador++;
+
             // 2. FASE DE IA
             if (extraccionExitosa && detallesExtraidos) {
                const infoCompleta = { ...convocatoria, codigoBDNS: codigoLimpio, ...detallesExtraidos };
-
                try {
                  let algunaEmpresaCuadra = false;
                  let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
@@ -346,6 +350,9 @@ export async function scrapeBDNS() {
           }
         } // Fin For elementos de la página
 
+        // Cerramos el navegador secundario al terminar la página
+        await detailBrowser.close().catch(() => {});
+
         // ==========================================
         // INSERCIÓN MASIVA AL TERMINAR LA PÁGINA
         // ==========================================
@@ -383,7 +390,7 @@ export async function scrapeBDNS() {
           }
         }
       } 
-    } // Fin Bucle de Modos
+    } 
 
     console.log(`\n🎉 Scraping BDNS completado para todas las secciones.`);
     await db.insert(scrapingState).values({ key: "last_bdns_sync", value: new Date().toISOString() })
