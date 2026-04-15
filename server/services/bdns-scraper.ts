@@ -17,7 +17,7 @@ const MODOS_BUSQUEDA = [
   { 
     id: 'C', 
     nombre: 'Administración del Estado', 
-    seleccionarEspecificos: 'ALL'
+    seleccionarEspecificos: 'ALL' 
   },
   { 
     id: 'A', 
@@ -41,7 +41,7 @@ const MODOS_BUSQUEDA = [
   { 
     id: 'O', 
     nombre: 'Otros órganos', 
-    seleccionarEspecificos: 'ALL'
+    seleccionarEspecificos: 'ALL' 
   }
 ];
 
@@ -229,10 +229,16 @@ export async function scrapeBDNS() {
           console.log(`[${i+1}/${convocatoriasPagina.length}] Analizando ${currentCode}...`);
 
           if (convocatoria.urlDetalle) {
+
+            // ✅ PAUSA ALEATORIA "JITTER" PARA SIMULAR HUMANO (Entre 6 y 12 segundos)
+            const pausaHumana = Math.floor(Math.random() * 6000) + 6000;
+            console.log(`   ⏳ Pausa humana de ${(pausaHumana/1000).toFixed(1)}s para no saturar al servidor...`);
+            await new Promise(resolve => setTimeout(resolve, pausaHumana));
+
             let detallesExtraidos: any = null;
             let extraccionExitosa = false;
             let intentos = 0;
-            const maxIntentos = 2; 
+            const maxIntentos = 3; // ✅ Subimos a 3 reintentos por si acaso
 
             // 1. BUCLE DE EXTRACCIÓN WEB BLINDADO
             while (!extraccionExitosa && intentos < maxIntentos) {
@@ -240,14 +246,12 @@ export async function scrapeBDNS() {
               let detailPage: any = null; 
 
               try {
-                // ✅ BLINDAJE 1: La creación de la página AHORA SÍ está dentro del try
                 detailPage = await browser.newPage();
 
                 await detailPage.setRequestInterception(true);
                 detailPage.on('request', (req: any) => {
                   const type = req.resourceType();
                   if (type === 'image' || type === 'stylesheet' || type === 'font' || type === 'media') {
-                    // ✅ BLINDAJE 2: Catch en el abort para evitar errores fantasma
                     req.abort().catch(() => {}); 
                   } else {
                     req.continue().catch(() => {});
@@ -255,11 +259,13 @@ export async function scrapeBDNS() {
                 });
 
                 if (intentos > 1) {
-                  console.log(`   ⏳ Pausando 8s y reintentando carga web (Intento ${intentos}/${maxIntentos})...`);
-                  await new Promise(resolve => setTimeout(resolve, 8000)); 
+                  // ✅ Mayor tiempo de enfriamiento si el servidor nos rechazó
+                  console.log(`   ⚠️ Reintento ${intentos}/${maxIntentos}. Enfriando servidor durante 15s...`);
+                  await new Promise(resolve => setTimeout(resolve, 15000)); 
                 }
 
-                await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
+                // ✅ Subimos el timeout absoluto a 90 segundos
+                await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 90000 });
                 await new Promise(resolve => setTimeout(resolve, 3000));
 
                 detallesExtraidos = await detailPage.evaluate(() => {
@@ -300,7 +306,7 @@ export async function scrapeBDNS() {
               } catch (err: any) {
                  console.error(`   ❌ Error en navegación web (${currentCode}): ${err.message}`);
               } finally {
-                // ✅ BLINDAJE 3: Cierre seguro garantizado de la pestaña
+                // ✅ BLINDAJE: Cierre seguro garantizado
                 if (detailPage && !detailPage.isClosed()) {
                   await detailPage.close().catch(() => {});
                 }
@@ -312,7 +318,6 @@ export async function scrapeBDNS() {
                const infoCompleta = { ...convocatoria, codigoBDNS: codigoLimpio, ...detallesExtraidos };
 
                try {
-                 // ✅ BLINDAJE 4: Si la IA falla, lo atrapamos aquí y no tumbamos todo el proceso
                  let algunaEmpresaCuadra = false;
                  let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
                  const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
@@ -345,7 +350,7 @@ export async function scrapeBDNS() {
                  updatedHighestCode = currentCode;
                }
             } else {
-               console.log(`   ⏭️ Saltando convocatoria ${currentCode} tras fallar la extracción.`);
+               console.log(`   ⏭️ Saltando convocatoria ${currentCode} tras agotar intentos web.`);
             }
           }
         } // Fin For elementos de la página
