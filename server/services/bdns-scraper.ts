@@ -112,7 +112,8 @@ export async function scrapeBDNS() {
         '--disable-extensions',
         '--mute-audio',
         '--no-first-run',
-        '--disable-default-apps'
+        '--disable-default-apps',
+        '--disable-blink-features=AutomationControlled'
       ]
     });
     
@@ -128,6 +129,18 @@ export async function scrapeBDNS() {
       'Sec-Fetch-Mode': 'navigate',
       'Sec-Fetch-Site': 'none',
       'Upgrade-Insecure-Requests': '1'
+    });
+
+    // 🥷 NUEVO: Scripts sigilosos extremos para engañar al Firewall del Estado
+    await page.evaluateOnNewDocument(() => {
+      // 1. Sobrescribimos la propiedad 'webdriver' para que sea 'undefined' en vez de 'true'
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      // 2. Falsificamos los idiomas preferidos
+      Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en'] });
+      // 3. Los navegadores invisibles no tienen plugins, los humanos sí. Nos inventamos algunos.
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      // 4. Parche extra para Chrome
+      window.chrome = { runtime: {} };
     });
 
     // ==========================================
