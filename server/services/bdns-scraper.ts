@@ -14,35 +14,19 @@ function parseBDNSDate(dateStr: string) {
 
 // DEFINICIÓN DE LOS 4 FILTROS EXCLUYENTES
 const MODOS_BUSQUEDA = [
-  { 
-    id: 'C', 
-    nombre: 'Administración del Estado', 
-    seleccionarEspecificos: 'ALL' 
-  },
-  { 
-    id: 'A', 
-    nombre: 'Comunidades autónomas', 
-    seleccionarEspecificos: [
-      'ANDALUCÍA', 'ARAGÓN', 'CASTILLA Y LEÓN', 'COMUNITAT VALENCIANA', 'EXTREMADURA', 'GALICIA'
-    ] 
-  },
-  { 
-    id: 'L', 
-    nombre: 'Entidades locales', 
-    seleccionarEspecificos: [
-      'ALMERÍA', 'CÁDIZ', 'CÓRDOBA', 'GRANADA', 'HUELVA', 'JAÉN', 'MÁLAGA', 'SEVILLA',
-      'HUESCA', 'TERUEL', 'ZARAGOZA',
-      'ÁVILA', 'BURGOS', 'LEÓN', 'PALENCIA', 'SALAMANCA', 'SEGOVIA', 'SORIA', 'VALLADOLID', 'ZAMORA',
-      'ALACANT / ALICANTE', 'CASTELLÓ / CASTELLÓN', 'VALÈNCIA / VALENCIA',
-      'BADAJOZ', 'CÁCERES',
-      'A CORUÑA', 'LUGO', 'OURENSE', 'PONTEVEDRA'
-    ] 
-  },
-  { 
-    id: 'O', 
-    nombre: 'Otros órganos', 
-    seleccionarEspecificos: 'ALL' 
-  }
+  { id: 'C', nombre: 'Administración del Estado', seleccionarEspecificos: 'ALL' },
+  { id: 'A', nombre: 'Comunidades autónomas', seleccionarEspecificos: [ 'ANDALUCÍA', 'ARAGÓN', 'CASTILLA Y LEÓN', 'COMUNITAT VALENCIANA', 'EXTREMADURA', 'GALICIA' ] },
+  { id: 'L', nombre: 'Entidades locales', seleccionarEspecificos: [ 'ALMERÍA', 'CÁDIZ', 'CÓRDOBA', 'GRANADA', 'HUELVA', 'JAÉN', 'MÁLAGA', 'SEVILLA', 'HUESCA', 'TERUEL', 'ZARAGOZA', 'ÁVILA', 'BURGOS', 'LEÓN', 'PALENCIA', 'SALAMANCA', 'SEGOVIA', 'SORIA', 'VALLADOLID', 'ZAMORA', 'ALACANT / ALICANTE', 'CASTELLÓ / CASTELLÓN', 'VALÈNCIA / VALENCIA', 'BADAJOZ', 'CÁCERES', 'A CORUÑA', 'LUGO', 'OURENSE', 'PONTEVEDRA' ] },
+  { id: 'O', nombre: 'Otros órganos', seleccionarEspecificos: 'ALL' }
+];
+
+// Lista de identidades falsas (User-Agents) para evadir el bloqueo
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/123.0.0.0 Safari/537.36"
 ];
 
 export async function scrapeBDNS() {
@@ -77,9 +61,6 @@ export async function scrapeBDNS() {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 }); 
 
-    // ==========================================
-    // BUCLE EXTERNO: POR CADA MODO DE BÚSQUEDA
-    // ==========================================
     for (const modo of MODOS_BUSQUEDA) {
       console.log(`\n======================================================`);
       console.log(`🔎 INICIANDO BÚSQUEDA PARA: ${modo.nombre}`);
@@ -94,7 +75,6 @@ export async function scrapeBDNS() {
 
       console.log(`📍 Último código procesado para ${modo.nombre}: ${stopCodeLimit}`);
 
-      // 1. Ir a la web desde cero
       await page.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
       await new Promise(resolve => setTimeout(resolve, 5000));
 
@@ -165,9 +145,6 @@ export async function scrapeBDNS() {
         continue; 
       }
 
-      // ==========================================
-      // BUCLE INTERNO: PAGINACIÓN DE RESULTADOS
-      // ==========================================
       let keepScraping = true;
       let pageCounter = 1;
 
@@ -230,23 +207,30 @@ export async function scrapeBDNS() {
 
           if (convocatoria.urlDetalle) {
 
-            // ✅ PAUSA ALEATORIA "JITTER" PARA SIMULAR HUMANO (Entre 6 y 12 segundos)
-            const pausaHumana = Math.floor(Math.random() * 6000) + 6000;
-            console.log(`   ⏳ Pausa humana de ${(pausaHumana/1000).toFixed(1)}s para no saturar al servidor...`);
+            // Pausa humana
+            const pausaHumana = Math.floor(Math.random() * 5000) + 4000;
+            console.log(`   ⏳ Pausa humana de ${(pausaHumana/1000).toFixed(1)}s...`);
             await new Promise(resolve => setTimeout(resolve, pausaHumana));
 
             let detallesExtraidos: any = null;
             let extraccionExitosa = false;
             let intentos = 0;
-            const maxIntentos = 3; // ✅ Subimos a 3 reintentos por si acaso
+            const maxIntentos = 3; 
 
-            // 1. BUCLE DE EXTRACCIÓN WEB BLINDADO
+            // 1. BUCLE DE EXTRACCIÓN WEB BLINDADO Y AISLADO
             while (!extraccionExitosa && intentos < maxIntentos) {
               intentos++;
+              let context: any = null;
               let detailPage: any = null; 
 
               try {
-                detailPage = await browser.newPage();
+                // ✅ MAGIA DE INCÓGNITO: Creamos un contexto limpio y virgen sin cookies pasadas
+                context = await browser.createIncognitoBrowserContext();
+                detailPage = await context.newPage();
+
+                // ✅ ROTACIÓN DE IDENTIDAD: El servidor nos verá como un usuario distinto
+                const randomUserAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+                await detailPage.setUserAgent(randomUserAgent);
 
                 await detailPage.setRequestInterception(true);
                 detailPage.on('request', (req: any) => {
@@ -259,13 +243,12 @@ export async function scrapeBDNS() {
                 });
 
                 if (intentos > 1) {
-                  // ✅ Mayor tiempo de enfriamiento si el servidor nos rechazó
-                  console.log(`   ⚠️ Reintento ${intentos}/${maxIntentos}. Enfriando servidor durante 15s...`);
-                  await new Promise(resolve => setTimeout(resolve, 15000)); 
+                  console.log(`   ⚠️ Reintento ${intentos}/${maxIntentos}. Enfriando conexión 12s...`);
+                  await new Promise(resolve => setTimeout(resolve, 12000)); 
                 }
 
-                // ✅ Subimos el timeout absoluto a 90 segundos
-                await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 90000 });
+                // Reducimos a 45s, porque si una ventana en incógnito no carga en 45s, es el servidor, no nosotros.
+                await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
                 await new Promise(resolve => setTimeout(resolve, 3000));
 
                 detallesExtraidos = await detailPage.evaluate(() => {
@@ -304,12 +287,11 @@ export async function scrapeBDNS() {
                 extraccionExitosa = true; 
 
               } catch (err: any) {
-                 console.error(`   ❌ Error en navegación web (${currentCode}): ${err.message}`);
+                 console.error(`   ❌ Error web en (${currentCode}): ${err.message}`);
               } finally {
-                // ✅ BLINDAJE: Cierre seguro garantizado
-                if (detailPage && !detailPage.isClosed()) {
-                  await detailPage.close().catch(() => {});
-                }
+                // ✅ LIMPIEZA ABSOLUTA: Cerramos la pestaña Y el contexto de incógnito para no dejar rastro
+                if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(() => {});
+                if (context) await context.close().catch(() => {});
               }
             }
 
@@ -350,7 +332,7 @@ export async function scrapeBDNS() {
                  updatedHighestCode = currentCode;
                }
             } else {
-               console.log(`   ⏭️ Saltando convocatoria ${currentCode} tras agotar intentos web.`);
+               console.log(`   ⏭️ Saltando convocatoria ${currentCode} tras fallar la extracción.`);
             }
           }
         } // Fin For elementos de la página
