@@ -94,7 +94,7 @@ export async function scrapeBDNS() {
     const browser = await puppeteer.launch({
       headless: true,
       executablePath: chromiumPath,
-      dumpio: true, // ⚠️ ESTO ES CLAVE: Imprimirá el error real (ej. "missing libnss3.so")
+      dumpio: true, // Mantenlo para seguir viendo qué pasa
       args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox', 
@@ -102,7 +102,18 @@ export async function scrapeBDNS() {
         '--disable-gpu',
         '--no-zygote',
         '--disable-software-rasterizer',
-        '--remote-debugging-port=9222'
+        '--remote-debugging-port=9222',
+
+        // --- NUEVOS ARGUMENTOS PARA IGNORAR D-BUS Y ENTORNOS DE ESCRITORIO ---
+        '--disable-features=dbus',            // Apaga el D-Bus explícitamente
+        '--disable-background-networking',    // Evita conexiones en segundo plano inútiles
+        '--disable-extensions',               // No cargar extensiones
+        '--disable-default-apps',
+        '--disable-sync',
+        '--metrics-recording-only',
+        '--mute-audio',                       // Evita que busque drivers de sonido
+        '--no-first-run',
+        '--disable-notifications'             // Evita buscar el gestor de notificaciones
       ]
     });
     
