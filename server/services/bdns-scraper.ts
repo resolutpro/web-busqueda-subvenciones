@@ -25,8 +25,29 @@ const USER_AGENTS = [
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 ];
 
+// 👇 EL CERROJO: Evita que se lancen dos scrapers a la vez
+let isBdnsScrapingRunning = false;
+
 export async function scrapeBDNS() {
+  if (isBdnsScrapingRunning) {
+    console.log("⚠️ [BDNS] Intento bloqueado: Ya hay un proceso de scraping ejecutándose actualmente.");
+    return;
+  }
+
+  isBdnsScrapingRunning = true;
   console.log("🚀 Iniciando scraping BDNS (Filtros Órgano Convocante + Multi-Empresa)...");
+
+  // =========================================================
+  // 🧹 LIMPIEZA AUTOMÁTICA DE ZOMBIES EN EL SERVIDOR
+  // =========================================================
+  console.log("🧹 Limpiando procesos fantasma de Chromium en la memoria RAM...");
+  try {
+    execSync("pkill -f chromium");
+  } catch (e) { /* Ignorar si no hay procesos que matar */ }
+  try {
+    execSync("pkill -f chrome");
+  } catch (e) { /* Ignorar si no hay procesos que matar */ }
+  console.log("✨ Servidor limpio y listo para arrancar.");
 
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
@@ -34,6 +55,7 @@ export async function scrapeBDNS() {
   const todasLasEmpresas = await db.select().from(companies);
   if (todasLasEmpresas.length === 0) {
     console.log("\n⚠️ [BDNS] No hay empresas registradas. Deteniendo scraper.\n");
+    isBdnsScrapingRunning = false;
     return;
   }
 
@@ -60,9 +82,7 @@ export async function scrapeBDNS() {
       ]
     };
 
-    // =========================================================
     // NAVEGADOR PRINCIPAL (Para no perder la paginación)
-    // =========================================================
     const mainBrowser = await puppeteer.launch(browserOptions);
     const page = await mainBrowser.newPage();
     await page.setViewport({ width: 1280, height: 800 }); 
@@ -185,9 +205,7 @@ export async function scrapeBDNS() {
         const subvencionesAInsertarEnEstaPagina = [];
         let updatedHighestCode = highestCodeThisSession;
 
-        // =========================================================
-        // NAVEGADOR SECUNDARIO (Se recicla para evitar bloqueos)
-        // =========================================================
+        // NAVEGADOR SECUNDARIO (Se recicla)
         let detailBrowser = await puppeteer.launch(browserOptions);
         let detailBrowserStartTime = Date.now();
         let itemsProcesadosConEsteNavegador = 0;
@@ -217,7 +235,7 @@ export async function scrapeBDNS() {
 
           if (convocatoria.urlDetalle) {
 
-            // ✅ RECICLAJE DE NAVEGADOR: Si han pasado más de 4 minutos o hemos procesado 15 items
+            // RECICLAJE DE NAVEGADOR
             const tiempoTranscurrido = Date.now() - detailBrowserStartTime;
             if (tiempoTranscurrido > 240000 || itemsProcesadosConEsteNavegador >= 15) {
               console.log(`   ♻️ Reciclando navegador para evadir WAF (Transcurrido: ${(tiempoTranscurrido/1000).toFixed(0)}s)...`);
@@ -240,7 +258,6 @@ export async function scrapeBDNS() {
               let detailPage: any = null; 
 
               try {
-                // Usamos el navegador secundario que se recicla periódicamente
                 detailPage = await detailBrowser.newPage();
 
                 const randomUserAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
@@ -309,7 +326,7 @@ export async function scrapeBDNS() {
 
             itemsProcesadosConEsteNavegador++;
 
-            // 2. FASE DE IA
+            // FASE DE IA
             if (extraccionExitosa && detallesExtraidos) {
                const infoCompleta = { ...convocatoria, codigoBDNS: codigoLimpio, ...detallesExtraidos };
                try {
@@ -350,12 +367,9 @@ export async function scrapeBDNS() {
           }
         } // Fin For elementos de la página
 
-        // Cerramos el navegador secundario al terminar la página
         await detailBrowser.close().catch(() => {});
 
-        // ==========================================
         // INSERCIÓN MASIVA AL TERMINAR LA PÁGINA
-        // ==========================================
         if (subvencionesAInsertarEnEstaPagina.length > 0) {
           try {
             console.log(`\n💾 [BDNS - ${modo.nombre}] Insertando ${subvencionesAInsertarEnEstaPagina.length} subvenciones en BD...`);
@@ -400,5 +414,9 @@ export async function scrapeBDNS() {
 
   } catch (error) {
     console.error("💀 Error CRÍTICO (Nivel Superior):", error);
+  } finally {
+    // 👇 ABRIR CERROJO AL TERMINAR (Pase lo que pase)
+    isBdnsScrapingRunning = false;
+    console.log("🔓 Cerrojo del scraper BDNS liberado.");
   }
 }
