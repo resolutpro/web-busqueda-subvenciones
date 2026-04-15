@@ -33,50 +33,15 @@ export async function fetchTEDGrants() {
     description: `Tamaño:d ${e.size || 'No definido'}. Ubicación: ${e.location || 'No definida'}. Sector/CNAE: ${e.cnae || 'No definido'}. Actividad: ${e.description}`
   }));
 
-  // Limpieza de procesos zombie de Chromium antes de empezar
-  try {
-    console.log("🧹 Limpiando procesos de Chromium colgados en memoria...");
-    execSync("pkill -f chromium");
-    execSync("pkill -f chrome");
-  } catch (e) {
-    // Es normal que dé error si no hay ningún proceso abierto, lo ignoramos.
-  }
   // === PREPARAMOS EL NAVEGADOR INVISIBLE (PUPPETEER) ===
-  // 1. Buscamos la ruta de la forma más segura posible en Replit
-  let chromiumPath = process.env.PUPPETEER_EXECUTABLE_PATH || "";
-  if (!chromiumPath) {
-    try { 
-      chromiumPath = execSync("which chromium").toString().trim(); 
-    } catch (e) { 
-      chromiumPath = "/nix/var/nix/profiles/default/bin/chromium"; 
-    }
-  }
-
-  console.log(`🚀 Intentando abrir Chromium en la ruta: ${chromiumPath}`);
+  let chromiumPath = "";
+  try { chromiumPath = execSync("which chromium").toString().trim(); } 
+  catch (e) { chromiumPath = "chromium"; }
 
   const browser = await puppeteer.launch({
     headless: true,
-    executablePath: chromiumPath,
-    pipe: true, // ⚠️ LA SOLUCIÓN MÁGICA: Usa tuberías internas de Linux en lugar de puertos de red
-    env: {
-      ...process.env,
-      DBUS_SESSION_BUS_ADDRESS: '/dev/null' // 🛑 Apaga completamente los intentos de conexión al D-Bus
-    },
-    args: [
-      '--no-sandbox', 
-      '--disable-setuid-sandbox', 
-      '--disable-dev-shm-usage', 
-      '--disable-gpu',
-      '--no-zygote',
-      '--disable-software-rasterizer',
-      // NOTA: Hemos eliminado '--remote-debugging-port' porque ahora usamos 'pipe: true'
-      '--disable-features=dbus',
-      '--disable-background-networking',
-      '--disable-extensions',
-      '--mute-audio',
-      '--no-first-run',
-      '--disable-default-apps'
-    ]
+    executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
   });
 
   try {
@@ -207,16 +172,6 @@ export async function fetchTEDGrants() {
         try {
           // Cambiamos networkidle2 por domcontentloaded para evitar que los errores internos 
           // de Angular (como __name is not defined) aborten el scraping
-          await detailPage.setRequestInterception(true);
-          detailPage.on('request', (req) => {
-            if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
-              req.abort();
-            } else {
-              req.continue();
-            }
-          });
-
-          
           await detailPage.goto(urlGenerada, { waitUntil: "domcontentloaded", timeout: 45000 });
 
           // Esperamos generosamente a que Angular pinte los datos en pantalla

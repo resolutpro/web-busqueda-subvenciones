@@ -70,78 +70,18 @@ export async function scrapeBDNS() {
   }));
 
   try {
-    // Limpieza de procesos zombie de Chromium antes de empezar
-    try {
-      console.log("🧹 Limpiando procesos de Chromium colgados en memoria...");
-      execSync("pkill -f chromium");
-      execSync("pkill -f chrome");
-    } catch (e) {
-      // Es normal que dé error si no hay ningún proceso abierto, lo ignoramos.
-    }
-    
-    // 1. Buscamos la ruta de la forma más segura posible en Replit
-    let chromiumPath = process.env.PUPPETEER_EXECUTABLE_PATH || "";
-    if (!chromiumPath) {
-      try { 
-        chromiumPath = execSync("which chromium").toString().trim(); 
-      } catch (e) { 
-        chromiumPath = "/nix/var/nix/profiles/default/bin/chromium"; 
-      }
-    }
-
-    console.log(`🚀 Intentando abrir Chromium en la ruta: ${chromiumPath}`);
+    let chromiumPath = "";
+    try { chromiumPath = execSync("which chromium").toString().trim(); } 
+    catch (e) { chromiumPath = "chromium"; }
 
     const browser = await puppeteer.launch({
       headless: true,
-      executablePath: chromiumPath,
-      pipe: true, // ⚠️ LA SOLUCIÓN MÁGICA: Usa tuberías internas de Linux en lugar de puertos de red
-      env: {
-        ...process.env,
-        DBUS_SESSION_BUS_ADDRESS: '/dev/null' // 🛑 Apaga completamente los intentos de conexión al D-Bus
-      },
-      args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox', 
-        '--disable-dev-shm-usage', 
-        '--disable-gpu',
-        '--no-zygote',
-        '--disable-software-rasterizer',
-        // NOTA: Hemos eliminado '--remote-debugging-port' porque ahora usamos 'pipe: true'
-        '--disable-features=dbus',
-        '--disable-background-networking',
-        '--disable-extensions',
-        '--mute-audio',
-        '--no-first-run',
-        '--disable-default-apps',
-        '--disable-blink-features=AutomationControlled'
-      ]
+      executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
     });
-    
+
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 }); 
-
-    console.log("🎭 [Configuración] Aplicando User-Agent y cabeceras de usuario real...");
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-      'Upgrade-Insecure-Requests': '1'
-    });
-
-    // 🥷 NUEVO: Scripts sigilosos extremos para engañar al Firewall del Estado
-    await page.evaluateOnNewDocument(() => {
-      // 1. Sobrescribimos la propiedad 'webdriver' para que sea 'undefined' en vez de 'true'
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-      // 2. Falsificamos los idiomas preferidos
-      Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en'] });
-      // 3. Los navegadores invisibles no tienen plugins, los humanos sí. Nos inventamos algunos.
-      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-      // 4. Parche extra para Chrome
-      window.chrome = { runtime: {} };
-    });
 
     // ==========================================
     // BUCLE EXTERNO: POR CADA MODO DE BÚSQUEDA
@@ -151,6 +91,7 @@ export async function scrapeBDNS() {
       console.log(`🔎 INICIANDO BÚSQUEDA PARA: ${modo.nombre}`);
       console.log(`======================================================\n`);
 
+      // === NUEVO: Obtenemos el límite específico para este modo ===
       const stateKey = `highest_bdns_code_${modo.id}`;
       const stateRecord = await db.query.scrapingState.findFirst({
         where: eq(scrapingState.key, stateKey),
@@ -160,20 +101,12 @@ export async function scrapeBDNS() {
 
       console.log(`📍 Último código procesado para ${modo.nombre}: ${stopCodeLimit}`);
 
+      // 1. Ir a la web desde cero
+      await page.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
       try {
-        // 1. Ir a la web desde cero
-        console.log("🌐 [Paso 1/5] Conectando a la web principal (Infosubvenciones)...");
-        await page.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { 
-          waitUntil: "domcontentloaded", // Vital: no esperamos a la red, solo al HTML
-          timeout: 90000 
-        });
-
-        console.log("⏳ [Paso 1.5] Esperando 10 segundos a que Angular dibuje la interfaz...");
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        console.log("✅ Interfaz cargada.");
-
         // 2. Abrir el panel de "Órgano convocante"
-        console.log("📂 [Paso 2/5] Buscando y abriendo el panel 'Órgano convocante'...");
         await page.evaluate(() => {
           const headers = Array.from(document.querySelectorAll('mat-expansion-panel-header'));
           const panelOrgano = headers.find(h => h.textContent?.includes('Órgano convocante'));
@@ -181,10 +114,9 @@ export async function scrapeBDNS() {
             (panelOrgano as HTMLElement).click();
           }
         });
-        await new Promise(resolve => setTimeout(resolve, 2000)); 
+        await new Promise(resolve => setTimeout(resolve, 1500)); 
 
         // 3. Seleccionar el Radio Button (C, A, L, O)
-        console.log(`🔘 [Paso 3/5] Seleccionando radio button de modo: ${modo.id}...`);
         await page.evaluate((radioValue) => {
           const radioInput = document.querySelector(`input[type="radio"][value="${radioValue}"]`);
           if (radioInput) {
@@ -192,11 +124,13 @@ export async function scrapeBDNS() {
             if (radioContainer) (radioContainer as HTMLElement).click();
           }
         }, modo.id);
+
+        console.log(`🔘 Seleccionado radio button: ${modo.nombre}`);
         await new Promise(resolve => setTimeout(resolve, 3000)); 
 
         // 4. Marcar los checkboxes pertinentes (o todos)
         if (modo.seleccionarEspecificos) {
-          console.log(`☑️ [Paso 4/5] Aplicando checkboxes para ${modo.nombre}...`);
+          console.log(`☑️ Aplicando checkboxes para ${modo.nombre}...`);
 
           await page.evaluate((elementosDeseados) => {
             const nodos = document.querySelectorAll('mat-tree-node');
@@ -225,25 +159,20 @@ export async function scrapeBDNS() {
           }, modo.seleccionarEspecificos);
 
           await new Promise(resolve => setTimeout(resolve, 3000));
-        } else {
-           console.log(`☑️ [Paso 4/5] No requiere checkboxes específicos.`);
         }
 
         // 5. Clicar en "Filtrar"
-        console.log("🖱️ [Paso 5/5] Haciendo clic en 'Filtrar' y esperando resultados...");
+        console.log("🖱️ Haciendo clic en 'Filtrar'...");
         await page.evaluate(() => {
           const botones = Array.from(document.querySelectorAll('button'));
           const btnFiltrar = botones.find(btn => btn.textContent?.toLowerCase().includes('filtrar'));
           if (btnFiltrar) (btnFiltrar as HTMLElement).click();
         });
 
-        console.log("⏳ Esperando 8 segundos a que la tabla de resultados se actualice...");
         await new Promise(resolve => setTimeout(resolve, 8000));
-        console.log("✅ Resultados listos. Iniciando paginación...");
 
-      } catch (err: any) {
-        console.error(`❌ CRÍTICO: Error configurando filtros para ${modo.nombre}. Motivo exacto: ${err.message}`);
-        console.log("Saltando a la siguiente sección (Modo de búsqueda)...");
+      } catch (err) {
+        console.error(`❌ Error configurando filtros para ${modo.nombre}. Saltando a la siguiente sección.`, err);
         continue; 
       }
 
@@ -309,16 +238,7 @@ export async function scrapeBDNS() {
           if (convocatoria.urlDetalle) {
             const detailPage = await browser.newPage();
             try {
-              await detailPage.setRequestInterception(true);
-              detailPage.on('request', (req) => {
-                if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
-                  req.abort();
-                } else {
-                  req.continue();
-                }
-              });
-              
-              await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
+              await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "networkidle2", timeout: 30000 });
               await new Promise(resolve => setTimeout(resolve, 2000));
 
               const detallesExtraidos = await detailPage.evaluate(() => {
@@ -415,7 +335,7 @@ export async function scrapeBDNS() {
               }
 
             } catch (err: any) {
-              console.error(`   ❌ Error detalle ${convocatoria.codigoBDNS}: ${err.message}`);
+               console.error(`   ❌ Error detalle ${convocatoria.codigoBDNS}`);
             } finally {
               await detailPage.close();
 
