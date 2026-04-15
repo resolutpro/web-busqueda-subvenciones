@@ -89,22 +89,23 @@ export async function scrapeBDNS() {
       }
     }
 
-    // 2. Lanzamos Puppeteer con los argumentos optimizados para evitar el crasheo
+    console.log(`🚀 Intentando abrir Chromium en la ruta: ${chromiumPath}`);
+
     const browser = await puppeteer.launch({
       headless: true,
       executablePath: chromiumPath,
+      dumpio: true, // ⚠️ ESTO ES CLAVE: Imprimirá el error real (ej. "missing libnss3.so")
       args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox', 
-        '--disable-dev-shm-usage', // Vital para contenedores con poca RAM
+        '--disable-dev-shm-usage', 
         '--disable-gpu',
         '--no-zygote',
-        '--disable-software-rasterizer', // Evita crasheos gráficos en Linux
-        '--remote-debugging-port=9222'   // SOLUCIÓN AL WS TIMEOUT: Forza un puerto seguro
-        // ⚠️ Nota: Nos aseguramos de NO incluir '--single-process' aquí
+        '--disable-software-rasterizer',
+        '--remote-debugging-port=9222'
       ]
     });
-
+    
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 }); 
 
