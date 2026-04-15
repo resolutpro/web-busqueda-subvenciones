@@ -94,7 +94,11 @@ export async function scrapeBDNS() {
     const browser = await puppeteer.launch({
       headless: true,
       executablePath: chromiumPath,
-      dumpio: true, // Mantenlo para seguir viendo qué pasa
+      pipe: true, // ⚠️ LA SOLUCIÓN MÁGICA: Usa tuberías internas de Linux en lugar de puertos de red
+      env: {
+        ...process.env,
+        DBUS_SESSION_BUS_ADDRESS: '/dev/null' // 🛑 Apaga completamente los intentos de conexión al D-Bus
+      },
       args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox', 
@@ -102,18 +106,13 @@ export async function scrapeBDNS() {
         '--disable-gpu',
         '--no-zygote',
         '--disable-software-rasterizer',
-        '--remote-debugging-port=9222',
-
-        // --- NUEVOS ARGUMENTOS PARA IGNORAR D-BUS Y ENTORNOS DE ESCRITORIO ---
-        '--disable-features=dbus',            // Apaga el D-Bus explícitamente
-        '--disable-background-networking',    // Evita conexiones en segundo plano inútiles
-        '--disable-extensions',               // No cargar extensiones
-        '--disable-default-apps',
-        '--disable-sync',
-        '--metrics-recording-only',
-        '--mute-audio',                       // Evita que busque drivers de sonido
+        // NOTA: Hemos eliminado '--remote-debugging-port' porque ahora usamos 'pipe: true'
+        '--disable-features=dbus',
+        '--disable-background-networking',
+        '--disable-extensions',
+        '--mute-audio',
         '--no-first-run',
-        '--disable-notifications'             // Evita buscar el gestor de notificaciones
+        '--disable-default-apps'
       ]
     });
     
