@@ -170,11 +170,14 @@ export async function registerRoutes(
   //subvenciones
   app.post("/api/grants/scrape", isAuthenticated, async (req: any, res) => {
     try {
-      await scrapeBDNS();
-      res.json({ message: "Sincronización completada con éxito" });
+      // ⚠️ IMPORTANTE: No usamos 'await' para que el proceso corra en segundo plano.
+      scrapeBDNS().catch(err => console.error("Error en scraping en segundo plano:", err));
+
+      // Respondemos inmediatamente al usuario
+      res.json({ message: "La sincronización ha comenzado en segundo plano. Esto puede tardar varios minutos." });
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error al sincronizar con BDNS" });
+      res.status(500).json({ message: "Error al iniciar sincronizar con BDNS" });
     }
   });
 
@@ -260,11 +263,16 @@ export async function registerRoutes(
 
   app.post("/api/scrape/ted", isAuthenticated, async (req, res) => {
     try {
-      await fetchTEDGrants();
-      res.json({ message: "Sincronización con TED (Europa) completada" });
+      // ⚠️ IMPORTANTE: Ejecutamos fetchTEDGrants en segundo plano sin 'await'
+      fetchTEDGrants().catch(error => {
+        console.error("Error en sincronización en segundo plano de TED:", error);
+      });
+
+      // Respondemos al frontend inmediatamente
+      res.json({ message: "Sincronización con TED (Europa) iniciada en segundo plano." });
     } catch (error) {
-      console.error("Error en sincronización manual de TED:", error);
-      res.status(500).json({ error: "Ocurrió un error al sincronizar TED" });
+      console.error("Error al iniciar sincronización de TED:", error);
+      res.status(500).json({ error: "Ocurrió un error al intentar iniciar TED" });
     }
   });
 

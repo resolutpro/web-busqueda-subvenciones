@@ -238,7 +238,16 @@ export async function scrapeBDNS() {
           if (convocatoria.urlDetalle) {
             const detailPage = await browser.newPage();
             try {
-              await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "networkidle2", timeout: 30000 });
+              await detailPage.setRequestInterception(true);
+              detailPage.on('request', (req) => {
+                if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+                  req.abort();
+                } else {
+                  req.continue();
+                }
+              });
+              
+              await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
               await new Promise(resolve => setTimeout(resolve, 2000));
 
               const detallesExtraidos = await detailPage.evaluate(() => {
@@ -335,7 +344,7 @@ export async function scrapeBDNS() {
               }
 
             } catch (err: any) {
-               console.error(`   ❌ Error detalle ${convocatoria.codigoBDNS}`);
+              console.error(`   ❌ Error detalle ${convocatoria.codigoBDNS}: ${err.message}`);
             } finally {
               await detailPage.close();
 

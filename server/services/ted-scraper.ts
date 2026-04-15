@@ -172,6 +172,16 @@ export async function fetchTEDGrants() {
         try {
           // Cambiamos networkidle2 por domcontentloaded para evitar que los errores internos 
           // de Angular (como __name is not defined) aborten el scraping
+          await detailPage.setRequestInterception(true);
+          detailPage.on('request', (req) => {
+            if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+              req.abort();
+            } else {
+              req.continue();
+            }
+          });
+
+          
           await detailPage.goto(urlGenerada, { waitUntil: "domcontentloaded", timeout: 45000 });
 
           // Esperamos generosamente a que Angular pinte los datos en pantalla
