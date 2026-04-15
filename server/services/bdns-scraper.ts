@@ -30,17 +30,11 @@ const MODOS_BUSQUEDA = [
     id: 'L', 
     nombre: 'Entidades locales', 
     seleccionarEspecificos: [
-      // Andalucía
       'ALMERÍA', 'CÁDIZ', 'CÓRDOBA', 'GRANADA', 'HUELVA', 'JAÉN', 'MÁLAGA', 'SEVILLA',
-      // Aragón
       'HUESCA', 'TERUEL', 'ZARAGOZA',
-      // Castilla y León
       'ÁVILA', 'BURGOS', 'LEÓN', 'PALENCIA', 'SALAMANCA', 'SEGOVIA', 'SORIA', 'VALLADOLID', 'ZAMORA',
-      // Comunitat Valenciana
       'ALACANT / ALICANTE', 'CASTELLÓ / CASTELLÓN', 'VALÈNCIA / VALENCIA',
-      // Extremadura
       'BADAJOZ', 'CÁCERES',
-      // Galicia
       'A CORUÑA', 'LUGO', 'OURENSE', 'PONTEVEDRA'
     ] 
   },
@@ -91,7 +85,6 @@ export async function scrapeBDNS() {
       console.log(`🔎 INICIANDO BÚSQUEDA PARA: ${modo.nombre}`);
       console.log(`======================================================\n`);
 
-      // === Obtenemos el límite específico para este modo ===
       const stateKey = `highest_bdns_code_${modo.id}`;
       const stateRecord = await db.query.scrapingState.findFirst({
         where: eq(scrapingState.key, stateKey),
@@ -106,7 +99,6 @@ export async function scrapeBDNS() {
       await new Promise(resolve => setTimeout(resolve, 5000));
 
       try {
-        // 2. Abrir el panel de "Órgano convocante"
         await page.evaluate(() => {
           const headers = Array.from(document.querySelectorAll('mat-expansion-panel-header'));
           const panelOrgano = headers.find(h => h.textContent?.includes('Órgano convocante'));
@@ -116,7 +108,6 @@ export async function scrapeBDNS() {
         });
         await new Promise(resolve => setTimeout(resolve, 1500)); 
 
-        // 3. Seleccionar el Radio Button (C, A, L, O)
         await page.evaluate((radioValue) => {
           const radioInput = document.querySelector(`input[type="radio"][value="${radioValue}"]`);
           if (radioInput) {
@@ -128,7 +119,6 @@ export async function scrapeBDNS() {
         console.log(`🔘 Seleccionado radio button: ${modo.nombre}`);
         await new Promise(resolve => setTimeout(resolve, 3000)); 
 
-        // 4. Marcar los checkboxes pertinentes (o todos)
         if (modo.seleccionarEspecificos) {
           console.log(`☑️ Aplicando checkboxes para ${modo.nombre}...`);
 
@@ -161,7 +151,6 @@ export async function scrapeBDNS() {
           await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
-        // 5. Clicar en "Filtrar"
         console.log("🖱️ Haciendo clic en 'Filtrar'...");
         await page.evaluate(() => {
           const botones = Array.from(document.querySelectorAll('button'));
@@ -213,7 +202,6 @@ export async function scrapeBDNS() {
           break;
         }
 
-        // === NUEVO: Arrays de acumulación para inserción masiva al final de la página ===
         const subvencionesAInsertarEnEstaPagina = [];
         let updatedHighestCode = highestCodeThisSession;
 
@@ -221,24 +209,20 @@ export async function scrapeBDNS() {
           const convocatoria = convocatoriasPagina[i];
           if (!convocatoria) continue;
 
-          // 1. Limpieza de caracteres invisibles para evitar NaN
           const codigoLimpio = convocatoria.codigoBDNS.replace(/\D/g, '');
           const currentCode = parseInt(codigoLimpio, 10);
           const currentDate = parseBDNSDate(convocatoria.fechaRegistro);
 
-          // Fallback por si la celda venía vacía o corrupta
           if (isNaN(currentCode)) continue;
 
-          // 2. PARADA DEFINITIVA: Fecha antigua (más de 1 mes)
           if (currentDate && currentDate < oneMonthAgo) {
-            console.log(`🛑 Deteniendo: Fecha antigua (más de 1 mes) en [${modo.nombre}].`);
+            console.log(`🛑 Deteniendo: Fecha antigua en [${modo.nombre}].`);
             keepScraping = false;
             break; 
           }
 
-          // 3. SALTO INDIVIDUAL: Si el código es viejo, lo saltamos pero seguimos buscando en la página
           if (currentCode <= stopCodeLimit) {
-            console.log(`⏭️ Saltando: Código BDNS ${currentCode} ya procesado en [${modo.nombre}].`);
+            console.log(`⏭️ Saltando: Código BDNS ${currentCode} ya procesado.`);
             continue; 
           }
 
@@ -248,49 +232,49 @@ export async function scrapeBDNS() {
             let detallesExtraidos: any = null;
             let extraccionExitosa = false;
             let intentos = 0;
-            const maxIntentos = 2; // Intentaremos cargar la web un máximo de 2 veces
+            const maxIntentos = 2; 
 
-            // 1. BUCLE DE EXTRACCIÓN WEB CON REINTENTOS
+            // 1. BUCLE DE EXTRACCIÓN WEB BLINDADO
             while (!extraccionExitosa && intentos < maxIntentos) {
               intentos++;
-              const detailPage = await browser.newPage();
+              let detailPage: any = null; 
 
               try {
-                // ✅ MAGIA ANTI-BLOQUEO: Bloqueamos imágenes, CSS y tipografías para no saturar al servidor
+                // ✅ BLINDAJE 1: La creación de la página AHORA SÍ está dentro del try
+                detailPage = await browser.newPage();
+
                 await detailPage.setRequestInterception(true);
-                detailPage.on('request', (req) => {
+                detailPage.on('request', (req: any) => {
                   const type = req.resourceType();
-                  // Angular necesita 'script', 'xhr' y 'fetch'. Bloqueamos todo lo estético.
                   if (type === 'image' || type === 'stylesheet' || type === 'font' || type === 'media') {
-                    req.abort();
+                    // ✅ BLINDAJE 2: Catch en el abort para evitar errores fantasma
+                    req.abort().catch(() => {}); 
                   } else {
-                    req.continue();
+                    req.continue().catch(() => {});
                   }
                 });
 
                 if (intentos > 1) {
-                  console.log(`   ⏳ El servidor no responde. Pausando 8s y reintentando (Intento ${intentos}/${maxIntentos})...`);
+                  console.log(`   ⏳ Pausando 8s y reintentando carga web (Intento ${intentos}/${maxIntentos})...`);
                   await new Promise(resolve => setTimeout(resolve, 8000)); 
                 }
 
-                // Subimos el timeout a 60s por precaución
                 await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
                 await new Promise(resolve => setTimeout(resolve, 3000));
 
                 detallesExtraidos = await detailPage.evaluate(() => {
-                  const camposInteres = [
-                    "Órgano convocante", "Sede electrónica para la presentación de solicitudes",
-                    "Código BDNS", "Mecanismo de Recuperación y Resiliencia", "Fecha de registro",
-                    "Tipo de convocatoria", "Presupuesto total de la convocatoria", "Instrumento de ayuda",
-                    "Título de la convocatoria en español", "Tipo de beneficiario elegible",
-                    "Sector económico del beneficiario", "Región de impacto", "Finalidad (política de gasto)",
-                    "Título de las Bases reguladoras", "Dirección electrónica de las bases reguladoras",
-                    "¿El extracto de la convocatoria se publica en diario oficial?",
-                    "¿Se puede solicitar indefinidamente?", "Fecha de inicio del periodo de solicitud",
-                    "SA Number (Referencia de ayuda de estado)", "SA Number (Enlace UE)",
-                    "Cofinanciado con Fondos UE", "Sector de productos", "Reglamento (UE)", "Objetivos"
+                  const camposInteres = [ 
+                    "Órgano convocante", "Sede electrónica para la presentación de solicitudes", 
+                    "Código BDNS", "Mecanismo de Recuperación y Resiliencia", "Fecha de registro", 
+                    "Tipo de convocatoria", "Presupuesto total de la convocatoria", "Instrumento de ayuda", 
+                    "Título de la convocatoria en español", "Tipo de beneficiario elegible", 
+                    "Sector económico del beneficiario", "Región de impacto", "Finalidad (política de gasto)", 
+                    "Título de las Bases reguladoras", "Dirección electrónica de las bases reguladoras", 
+                    "¿El extracto de la convocatoria se publica en diario oficial?", 
+                    "¿Se puede solicitar indefinidamente?", "Fecha de inicio del periodo de solicitud", 
+                    "SA Number (Referencia de ayuda de estado)", "SA Number (Enlace UE)", 
+                    "Cofinanciado con Fondos UE", "Sector de productos", "Reglamento (UE)", "Objetivos" 
                   ];
-
                   const res: Record<string, string> = {};
                   const titulos = document.querySelectorAll('.titulo-campo');
 
@@ -300,7 +284,6 @@ export async function scrapeBDNS() {
 
                     const elementoValor = titulo.nextElementSibling as HTMLElement;
                     let valor = "";
-
                     if (elementoValor) {
                       valor = elementoValor.innerText || elementoValor.textContent || "";
                       valor = valor.replace(/\n+/g, ' - ').replace(/\s+/g, ' ').trim();
@@ -312,107 +295,107 @@ export async function scrapeBDNS() {
                   return res;
                 });
 
-                extraccionExitosa = true; // Si llegamos aquí sin error de Timeout, fue un éxito
+                extraccionExitosa = true; 
 
               } catch (err: any) {
-                 console.error(`   ❌ Error web en ${currentCode} (Intento ${intentos}): ${err.message}`);
+                 console.error(`   ❌ Error en navegación web (${currentCode}): ${err.message}`);
               } finally {
-                // MUY IMPORTANTE: Cerramos la pestaña inmediatamente para liberar al servidor de la BDNS
-                await detailPage.close();
+                // ✅ BLINDAJE 3: Cierre seguro garantizado de la pestaña
+                if (detailPage && !detailPage.isClosed()) {
+                  await detailPage.close().catch(() => {});
+                }
               }
-            } // Fin del while de reintentos
+            }
 
-            // ========================================================
-            // 2. FASE DE IA (Solo se ejecuta si la extracción web funcionó)
-            // ========================================================
+            // 2. FASE DE IA BLINDADA
             if (extraccionExitosa && detallesExtraidos) {
                const infoCompleta = { ...convocatoria, codigoBDNS: codigoLimpio, ...detallesExtraidos };
 
-               let algunaEmpresaCuadra = false;
-               // La IA ahora trabaja tranquila sin tener una pestaña del navegador abierta de fondo
-               let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
-               const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
-               iaAnalisisMasivo.matches = matchesArray;
+               try {
+                 // ✅ BLINDAJE 4: Si la IA falla, lo atrapamos aquí y no tumbamos todo el proceso
+                 let algunaEmpresaCuadra = false;
+                 let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
+                 const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
+                 iaAnalisisMasivo.matches = matchesArray;
 
-               for (const match of matchesArray) {
-                 if (match.cuadra) {
-                   algunaEmpresaCuadra = true;
-                   console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
+                 for (const match of matchesArray) {
+                   if (match.cuadra) {
+                     algunaEmpresaCuadra = true;
+                     console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
+                   }
                  }
+
+                 if (algunaEmpresaCuadra) {
+                   subvencionesAInsertarEnEstaPagina.push({
+                     codigoBDNS: codigoLimpio, 
+                     titulo: convocatoria.titulo,
+                     organoConvocante: convocatoria.organoConvocante,
+                     fechaRegistro: currentDate,
+                     urlDetalle: convocatoria.urlDetalle,
+                     detallesExtraidos: detallesExtraidos, 
+                     iaAnalisis: iaAnalisisMasivo
+                   });
+                   console.log(`   ⏳ Añadida a la cola de inserción de esta página.`);
+                 }
+               } catch (iaErr: any) {
+                 console.error(`   ❌ Error de la IA evaluando ${currentCode}:`, iaErr.message);
                }
 
-               if (algunaEmpresaCuadra) {
-                 subvencionesAInsertarEnEstaPagina.push({
-                   codigoBDNS: codigoLimpio, 
-                   titulo: convocatoria.titulo,
-                   organoConvocante: convocatoria.organoConvocante,
-                   fechaRegistro: currentDate,
-                   urlDetalle: convocatoria.urlDetalle,
-                   detallesExtraidos: detallesExtraidos, 
-                   iaAnalisis: iaAnalisisMasivo
-                 });
-                 console.log(`   ⏳ Añadida a la cola de inserción de esta página.`);
-               }
-
-               // Actualizamos el ID máximo en RAM
                if (currentCode > updatedHighestCode) {
                  updatedHighestCode = currentCode;
                }
             } else {
-               console.log(`   ⏭️ Saltando convocatoria ${currentCode} definitivamente tras fallar la carga web.`);
+               console.log(`   ⏭️ Saltando convocatoria ${currentCode} tras fallar la extracción.`);
             }
           }
-        } // Fin del For de elementos de la página
+        } // Fin For elementos de la página
 
         // ==========================================
         // INSERCIÓN MASIVA AL TERMINAR LA PÁGINA
         // ==========================================
         if (subvencionesAInsertarEnEstaPagina.length > 0) {
           try {
-            console.log(`\n💾 [BDNS - ${modo.nombre}] Insertando ${subvencionesAInsertarEnEstaPagina.length} subvenciones válidas en BD...`);
+            console.log(`\n💾 [BDNS - ${modo.nombre}] Insertando ${subvencionesAInsertarEnEstaPagina.length} subvenciones en BD...`);
             await db.insert(bdnsGrants).values(subvencionesAInsertarEnEstaPagina);
           } catch (dbErr) {
-            console.error("❌ Error guardando bloque de subvenciones BDNS:", dbErr);
+            console.error("❌ Error guardando bloque en BD:", dbErr);
           }
         }
 
-        // Actualizamos el estado "highest_bdns_code" de golpe por página (mucho más eficiente)
         if (updatedHighestCode > highestCodeThisSession) {
           highestCodeThisSession = updatedHighestCode;
           try {
             await db.insert(scrapingState).values({ key: stateKey, value: highestCodeThisSession.toString() })
               .onConflictDoUpdate({ target: scrapingState.key, set: { value: highestCodeThisSession.toString(), updatedAt: new Date() } });
-          } catch (err) {
-            console.error("❌ Error guardando estado de scraping BDNS:", err);
-          }
+          } catch (err) {}
         }
 
-        // Lógica de Paginación para ir a la siguiente página
+        // Lógica de Paginación
         if (keepScraping) {
           const SELECTOR_BOTON_SIGUIENTE = 'button.mat-paginator-navigation-next'; 
-          const estaDeshabilitado = await page.$('button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled');
-
-          if (!estaDeshabilitado) {
-            try {
+          try {
+            const estaDeshabilitado = await page.$('button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled');
+            if (!estaDeshabilitado) {
               await page.evaluate((sel) => { (document.querySelector(sel) as HTMLElement)?.click(); }, SELECTOR_BOTON_SIGUIENTE);
               await new Promise(resolve => setTimeout(resolve, 6000));
               pageCounter++;
-            } catch (e) { keepScraping = false; }
-          } else {
-            keepScraping = false; 
+            } else {
+              keepScraping = false; 
+            }
+          } catch (err) {
+            keepScraping = false;
           }
         }
       } 
     } // Fin Bucle de Modos
 
-    console.log(`\n🎉 Scraping completado para todas las secciones.`);
-
+    console.log(`\n🎉 Scraping BDNS completado para todas las secciones.`);
     await db.insert(scrapingState).values({ key: "last_bdns_sync", value: new Date().toISOString() })
       .onConflictDoUpdate({ target: scrapingState.key, set: { value: new Date().toISOString(), updatedAt: new Date() }});
 
     await browser.close();
 
   } catch (error) {
-    console.error("💀 Error CRÍTICO:", error);
+    console.error("💀 Error CRÍTICO (Nivel Superior):", error);
   }
 }
