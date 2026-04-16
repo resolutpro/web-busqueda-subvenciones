@@ -9,11 +9,9 @@ import { checkGrantWithAI } from "./ai-evaluator";
 // Aplicamos el camuflaje
 puppeteer.use(StealthPlugin());
 
-// 🔥 CORRECCIÓN 1: Parseo de fechas matemático a prueba de zonas horarias
 function parseBDNSDate(dateStr: string) {
   if (!dateStr || dateStr === "") return null;
   const [day, month, year] = dateStr.split('/');
-  // En JavaScript, los meses van de 0 (Enero) a 11 (Diciembre), por eso restamos 1 al mes
   return new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
 }
 
@@ -33,18 +31,16 @@ export async function scrapeBDNS() {
   }
 
   isBdnsScrapingRunning = true;
-  console.log("🚀 Iniciando scraping BDNS (MODO STEALTH + REINICIO DURO + LOGS FECHAS)...");
+  console.log("🚀 Iniciando scraping BDNS (STEALTH + TORTUGA + ANTI-ZOMBIES)...");
 
   console.log("🧹 Limpiando RAM del servidor...");
   try { execSync("pkill -f chromium"); } catch (e) {}
   try { execSync("pkill -f chrome"); } catch (e) {}
 
-  // 🔥 CORRECCIÓN 2: Límite de hace un mes calculado limpiamente a las 00:00:00
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
   oneMonthAgo.setHours(0, 0, 0, 0); 
-  console.log(`\n📅 ATENCIÓN: El límite de antigüedad se ha fijado en -> ${oneMonthAgo.toLocaleDateString('es-ES')}`);
-  console.log(`📅 Cualquier subvención anterior a esta fecha detendrá la búsqueda.\n`);
+  console.log(`\n📅 ATENCIÓN: Límite de antigüedad -> ${oneMonthAgo.toLocaleDateString('es-ES')}`);
 
   const todasLasEmpresas = await db.select().from(companies);
   if (todasLasEmpresas.length === 0) {
@@ -65,6 +61,8 @@ export async function scrapeBDNS() {
   const puppeteerOptions = {
     headless: true,
     executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
+    timeout: 120000, // 🔥 MAGIA 1: Le damos a Replit hasta 2 minutos para encender Chrome sin agobiarse
+    protocolTimeout: 240000,
     args: [
       '--no-sandbox', 
       '--disable-setuid-sandbox', 
@@ -189,15 +187,12 @@ export async function scrapeBDNS() {
 
           if (isNaN(currentCode)) continue;
 
-          // 🔥 CORRECCIÓN 3: LOGS DETALLADOS DE FECHAS
           if (currentDate) {
             const esAntigua = currentDate < oneMonthAgo;
-            console.log(`      🗓️ BDNS ${currentCode} | Fecha: ${currentDate.toLocaleDateString('es-ES')} | ¿Es anterior a ${oneMonthAgo.toLocaleDateString('es-ES')}? -> ${esAntigua ? 'SÍ 🛑' : 'NO ✅'}`);
-
             if (esAntigua) {
-              console.log(`   🛑 Freno activado: Hemos llegado a una fecha de hace más de 1 mes.`);
+              console.log(`   🛑 Freno activado: Hemos llegado a una fecha antigua (${currentDate.toLocaleDateString('es-ES')}).`);
               keepScraping = false;
-              break; // Rompemos el bucle for
+              break; 
             }
           }
 
@@ -206,10 +201,7 @@ export async function scrapeBDNS() {
           }
         }
 
-        // Si hemos roto el bucle por fecha, salimos del while de paginación
-        if (!keepScraping) {
-           break;
-        }
+        if (!keepScraping) break;
 
         if (keepScraping) {
           const SELECTOR_BOTON_SIGUIENTE = 'button.mat-paginator-navigation-next'; 
@@ -259,9 +251,18 @@ export async function scrapeBDNS() {
           try {
             if (intentos > 1) {
               console.log(`   🚨 [CORTAFUEGOS DETECTADO] Reintento ${intentos}/3. Apagando Chrome y durmiendo 5 min...`);
-              if (browser) await browser.close().catch(()=>{});
+              if (browser) {
+                await browser.close().catch(()=>{});
+                browser = null; // Matamos la referencia
+              }
 
               await new Promise(resolve => setTimeout(resolve, 300000)); // 5 minutos
+
+              // 🔥 MAGIA 2: Matamos zombis ANTES de intentar arrancar de nuevo
+              console.log(`   🧹 Aniquilando procesos zombis de RAM...`);
+              try { execSync("pkill -f chromium"); } catch (e) {}
+              try { execSync("pkill -f chrome"); } catch (e) {}
+              await new Promise(resolve => setTimeout(resolve, 2000)); // Dejamos que el SO respire
 
               console.log(`   🔄 Despertando y arrancando Chrome limpio...`);
               browser = await puppeteer.launch(puppeteerOptions as any);
