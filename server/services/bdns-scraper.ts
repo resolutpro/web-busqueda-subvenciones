@@ -37,7 +37,7 @@ export async function scrapeBDNS() {
   }
 
   isBdnsScrapingRunning = true;
-  console.log("🚀 Iniciando BDNS (ESTRATEGIA DEFINITIVA: MICRO-LOTES CON DESCANSO)...");
+  console.log("🚀 Iniciando BDNS (ESTRATEGIA: MICRO-LOTES CON DESCANSO)...");
 
   console.log("🧹 Limpiando RAM...");
   try { execSync("pkill -f chromium"); } catch (e) {}
@@ -60,14 +60,23 @@ export async function scrapeBDNS() {
   try { chromiumPath = execSync("which chromium").toString().trim(); } 
   catch (e) { chromiumPath = "chromium"; }
 
+  // ⚠️ ELIMINADO EL '--single-process' QUE CAUSABA EL CUELGUE DEL PROTOCOLO
   const browserArgs = [
     '--no-sandbox', 
     '--disable-setuid-sandbox', 
     '--disable-dev-shm-usage', 
     '--disable-gpu',
-    '--single-process',
-    '--no-zygote'
+    '--no-zygote',
+    '--disable-features=site-per-process'
   ];
+
+  // AÑADIDO: protocolTimeout para que Replit no se ahogue
+  const puppeteerOptions = { 
+    headless: true, 
+    executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium', 
+    args: browserArgs,
+    protocolTimeout: 240000 // 4 minutos de tolerancia para que Chrome hable con Node
+  };
 
   try {
     for (const modo of MODOS_BUSQUEDA) {
@@ -83,7 +92,7 @@ export async function scrapeBDNS() {
       // =========================================================================
       // FASE 1: RECOPILAR ENLACES (Sin leer detalles)
       // =========================================================================
-      let tableBrowser = await puppeteer.launch({ headless: true, executablePath: chromiumPath, args: browserArgs });
+      let tableBrowser = await puppeteer.launch(puppeteerOptions as any);
       let tablePage = await tableBrowser.newPage();
 
       await tablePage.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
@@ -186,29 +195,26 @@ export async function scrapeBDNS() {
         }
       } 
 
-      await tableBrowser.close().catch(()=>{}); // Cerramos el navegador de la tabla
+      await tableBrowser.close().catch(()=>{}); 
 
       if (enlacesAProcesar.length === 0) {
         console.log(`✅ No hay subvenciones nuevas en esta sección.`);
         continue;
       }
 
-      // 🔄 MAGIA: Damos la vuelta a los enlaces. Empezamos por el más viejo. 
-      // Si nos bloquean o crashea, guardará por dónde iba de forma segura.
       enlacesAProcesar.reverse();
       console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces. Procesando del más antiguo al más nuevo...`);
 
       // =========================================================================
-      // FASE 2: MICRO-LOTES CON DESCANSO PARA EVADIR EL WAF (CORTAFUEGOS)
+      // FASE 2: MICRO-LOTES CON DESCANSO 
       // =========================================================================
-      const TAMANO_LOTE = 15; // Leeremos de 15 en 15
+      const TAMANO_LOTE = 15; 
 
       for (let i = 0; i < enlacesAProcesar.length; i += TAMANO_LOTE) {
         const lote = enlacesAProcesar.slice(i, i + TAMANO_LOTE);
         console.log(`\n📦 --- Iniciando LOTE de ${lote.length} subvenciones ---`);
 
-        // Abrimos un navegador limpio solo para este lote
-        let batchBrowser = await puppeteer.launch({ headless: true, executablePath: chromiumPath, args: browserArgs });
+        let batchBrowser = await puppeteer.launch(puppeteerOptions as any);
         const subvencionesAInsertar = [];
 
         for (const conv of lote) {
@@ -226,7 +232,7 @@ export async function scrapeBDNS() {
               else req.continue().catch(()=>{});
             });
 
-            await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
+            await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
             await new Promise(resolve => setTimeout(resolve, 2000));
 
             detallesExtraidos = await detailPage.evaluate(() => {
@@ -248,7 +254,7 @@ export async function scrapeBDNS() {
             });
             await detailPage.close().catch(()=>{});
 
-            // Pausa humana entre clics dentro del lote
+            // Pausa humana 
             await new Promise(r => setTimeout(r, Math.random() * 4000 + 4000));
 
           } catch (err: any) {
@@ -288,9 +294,8 @@ export async function scrapeBDNS() {
                 } catch(e) {}
              }
           }
-        } // Fin del lote actual
+        } 
 
-        // Guardamos en BD lo que hayamos sacado en este lote
         if (subvencionesAInsertar.length > 0) {
           try {
             await db.insert(bdnsGrants).values(subvencionesAInsertar);
@@ -298,12 +303,10 @@ export async function scrapeBDNS() {
           } catch (dbErr) {}
         }
 
-        // Cerramos el navegador para liberar RAM
         await batchBrowser.close().catch(()=>{});
 
-        // ☕ LA PAUSA DEL CAFÉ (Si quedan más lotes por procesar)
         if (i + TAMANO_LOTE < enlacesAProcesar.length) {
-           console.log(`\n☕ Lote terminado. Tomando un descanso de 2 MINUTOS para que el firewall olvide nuestra IP...`);
+           console.log(`\n☕ Lote terminado. Tomando un descanso de 2 MINUTOS para limpiar IP y RAM...`);
            await new Promise(resolve => setTimeout(resolve, 120000)); 
         }
       } 
