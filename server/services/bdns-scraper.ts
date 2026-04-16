@@ -17,7 +17,7 @@ function parseBDNSDate(dateStr: string) {
 
 // Limpieza básica de procesos en caso de que queden zombis al arrancar
 function aniquilarZombis() {
-  console.log("   🔨 [SISTEMA] Ejecutando limpieza inicial de RAM...");
+  console.log("   🔨 [SISTEMA] Ejecutando limpieza de RAM y Disco...");
   try { execSync("pkill -9 -f chromium"); } catch (e) {}
   try { execSync("pkill -9 -f chrome"); } catch (e) {}
   try { execSync("rm -rf /tmp/puppeteer*"); } catch (e) {}
@@ -40,11 +40,41 @@ export async function scrapeBDNS() {
 
   isBdnsScrapingRunning = true;
   const GLOBAL_START_TIME = Date.now();
-  let shouldKamikaze = false; // <--- LA NUEVA BANDERA DEL REINICIO
+  let shouldKamikaze = false;
 
-  console.log("🚀 Iniciando BDNS (ESTRATEGIA KAMIKAZE: REINICIO DE SERVIDOR AL DETECTAR BLOQUEO)...");
+  console.log("🚀 Iniciando BDNS (KAMIKAZE + PROXIES ROTATIVOS ORDENADOS)...");
 
   aniquilarZombis();
+
+  // =========================================================================
+  // 🕵️‍♂️ LÓGICA DE ROTACIÓN SECUENCIAL DE PROXIES
+  // =========================================================================
+  // 1. Miramos en la BD qué número de proxy toca
+  const proxyStateRecord = await db.query.scrapingState.findFirst({ where: eq(scrapingState.key, "current_proxy_index") });
+  let currentProxyIndex = proxyStateRecord ? parseInt(proxyStateRecord.value, 10) : 1;
+
+  // 2. Buscamos esa variable en el .env
+  let proxyString = process.env[`WEBSHARE_PROXIES_${currentProxyIndex}`];
+
+  // 3. Si no existe (ej. hemos llegado al 11 y solo hay 10), volvemos al 1
+  if (!proxyString) {
+    currentProxyIndex = 1;
+    proxyString = process.env[`WEBSHARE_PROXIES_${currentProxyIndex}`];
+  }
+
+  let currentProxy: any = null;
+  if (proxyString) {
+    const partes = proxyString.split(':').map(p => p.trim());
+    if (partes.length >= 4) {
+      currentProxy = { host: partes[0], port: partes[1], user: partes[2], pass: partes[3] };
+      console.log(`🕵️‍♂️ Máscara Proxy activada [ÍNDICE ${currentProxyIndex}]: Usando IP ${currentProxy.host}:${currentProxy.port}`);
+    } else {
+      console.log(`⚠️ ATENCIÓN: El formato de WEBSHARE_PROXIES_${currentProxyIndex} es incorrecto. Debe ser IP:PUERTO:USUARIO:PASS`);
+    }
+  } else {
+    console.log(`⚠️ ATENCIÓN: No se encontraron variables WEBSHARE_PROXIES_X. Navegando al descubierto.`);
+  }
+  // =========================================================================
 
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
@@ -61,18 +91,25 @@ export async function scrapeBDNS() {
   try { chromiumPath = execSync("which chromium").toString().trim(); } 
   catch (e) { chromiumPath = "chromium"; }
 
+  const browserArgs = [
+    '--no-sandbox', 
+    '--disable-setuid-sandbox', 
+    '--disable-dev-shm-usage', 
+    '--disable-gpu',
+    '--js-flags="--max-old-space-size=256"'
+  ];
+
+  // Si hemos logrado montar el proxy, se lo inyectamos al navegador
+  if (currentProxy) {
+    browserArgs.push(`--proxy-server=http://${currentProxy.host}:${currentProxy.port}`);
+  }
+
   const puppeteerOptions = {
     headless: true,
     executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
     timeout: 120000, 
     protocolTimeout: 240000,
-    args: [
-      '--no-sandbox', 
-      '--disable-setuid-sandbox', 
-      '--disable-dev-shm-usage', 
-      '--disable-gpu',
-      '--js-flags="--max-old-space-size=256"'
-    ]
+    args: browserArgs
   };
 
   try {
@@ -91,6 +128,12 @@ export async function scrapeBDNS() {
       let highestCodeThisSession = stopCodeLimit;
 
       let tablePage = await browser.newPage();
+
+      // 🔐 Autenticación del proxy en la tabla
+      if (currentProxy && currentProxy.user && currentProxy.pass) {
+        await tablePage.authenticate({ username: currentProxy.user, password: currentProxy.pass });
+      }
+
       await tablePage.setViewport({ width: 1280, height: 800 }); 
 
       await tablePage.setRequestInterception(true);
@@ -106,7 +149,7 @@ export async function scrapeBDNS() {
         await tablePage.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "domcontentloaded", timeout: 60000 });
         await new Promise(resolve => setTimeout(resolve, 5000));
       } catch (navError) {
-        console.log(`❌ Error al cargar la página principal. WAF detectado al instante.`);
+        console.log(`❌ Error al cargar la página principal. Proxy muerto o WAF detectado.`);
         throw new Error("WAF_BLOCK"); 
       }
 
@@ -245,7 +288,7 @@ export async function scrapeBDNS() {
 
         const tiempoTranscurrido = Date.now() - GLOBAL_START_TIME;
         if (tiempoTranscurrido > 240000) {
-           console.log(`\n⏰ ¡LÍMITE DE 4 MINUTOS! Activando protocolo Kamikaze.`);
+           console.log(`\n⏰ ¡TIEMPO LÍMITE ALCANZADO! (4 minutos). Nos inmolamos.`);
            shouldKamikaze = true; 
            break; 
         }
@@ -264,6 +307,11 @@ export async function scrapeBDNS() {
         try {
           context = await browser.createBrowserContext();
           detailPage = await context.newPage();
+
+          // 🔐 Autenticación de Proxy en Detalles
+          if (currentProxy && currentProxy.user && currentProxy.pass) {
+            await detailPage.authenticate({ username: currentProxy.user, password: currentProxy.pass });
+          }
 
           await detailPage.setRequestInterception(true);
           detailPage.on('request', (req: any) => {
@@ -299,7 +347,7 @@ export async function scrapeBDNS() {
           await new Promise(r => setTimeout(r, Math.random() * 2000 + 2000));
 
         } catch (err: any) {
-           console.error(`   ❌ Cortafuegos interceptó (Timeout). Activando Kamikaze.`);
+           console.error(`   ❌ El proxy falló o el cortafuegos interceptó. Activando Kamikaze.`);
            throw new Error("WAF_BLOCK");
         } finally {
           if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(()=>{});
@@ -315,6 +363,7 @@ export async function scrapeBDNS() {
              let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
 
              /* === DESCOMENTAR PARA ACTIVAR IA REAL ===
+             let algunaEmpresaCuadra = false;
              let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
              const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
              iaAnalisisMasivo.matches = matchesArray;
@@ -364,7 +413,7 @@ export async function scrapeBDNS() {
 
   } catch (error: any) {
     if (error.message.includes("WAF_BLOCK") || error.message.includes("Timeout")) {
-       console.log("\n🛑 [SISTEMA] Cortafuegos detectado. Nos inmolamos para conseguir una nueva IP.");
+       console.log("\n🛑 [SISTEMA] El Proxy fue bloqueado o es lento. Nos inmolamos para forzar un reinicio.");
        shouldKamikaze = true;
     } else {
        console.error("💀 Error CRÍTICO:", error);
@@ -377,15 +426,23 @@ export async function scrapeBDNS() {
     if (shouldKamikaze) {
        console.log("===============================================================");
        console.log("💥 ESTRATEGIA KAMIKAZE INICIADA 💥");
+
+       // 👇 ACTUALIZAMOS EL ÍNDICE DEL PROXY PARA EL PRÓXIMO REINICIO 👇
+       const nextProxyIndex = currentProxyIndex + 1;
+       try {
+         await db.insert(scrapingState).values({ key: "current_proxy_index", value: nextProxyIndex.toString() })
+           .onConflictDoUpdate({ target: scrapingState.key, set: { value: nextProxyIndex.toString(), updatedAt: new Date() } });
+       } catch(e) {}
+
+       console.log(`🔄 El próximo arranque usará el proxy WEBSHARE_PROXIES_${nextProxyIndex}`);
        console.log("===============================================================");
 
-       // 👇 1. DEJAMOS LA NOTA EN LA BASE DE DATOS ANTES DE MORIR 👇
        await db.insert(scrapingState).values({ key: "kamikaze_resume", value: "true" })
          .onConflictDoUpdate({ target: scrapingState.key, set: { value: "true", updatedAt: new Date() } });
 
        process.exit(1); 
     } else {
-       // 👇 2. SI HA TERMINADO BIEN, BORRAMOS LA NOTA 👇
+       // Si termina con éxito, también podemos resetear el índice al 1 si queremos, o dejarlo
        await db.insert(scrapingState).values({ key: "kamikaze_resume", value: "false" })
          .onConflictDoUpdate({ target: scrapingState.key, set: { value: "false", updatedAt: new Date() } });
 
