@@ -18,13 +18,6 @@ const MODOS_BUSQUEDA = [
   { id: 'O', nombre: 'Otros órganos', seleccionarEspecificos: 'ALL' }
 ];
 
-const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-];
-
 let isBdnsScrapingRunning = false;
 
 export async function scrapeBDNS() {
@@ -34,9 +27,10 @@ export async function scrapeBDNS() {
   }
 
   isBdnsScrapingRunning = true;
-  console.log("🚀 Iniciando scraping BDNS (Filtros Órgano Convocante + Multi-Empresa)...");
+  console.log("🚀 Iniciando scraping BDNS (ARQUITECTURA DE 2 FASES)...");
 
-  console.log("🧹 Limpiando procesos fantasma de Chromium en la memoria RAM...");
+  // Limpieza agresiva de RAM
+  console.log("🧹 Limpiando RAM del servidor...");
   try { execSync("pkill -f chromium"); } catch (e) {}
   try { execSync("pkill -f chrome"); } catch (e) {}
 
@@ -51,9 +45,7 @@ export async function scrapeBDNS() {
   }
 
   const arrayEmpresasIA = todasLasEmpresas.map(e => ({
-    id: e.id,
-    name: e.name,
-    description: `Tamaño: ${e.size || 'No definido'}. Ubicación: ${e.location || 'No definida'}. Sector/CNAE: ${e.cnae || 'No definido'}. Actividad: ${e.description}`
+    id: e.id, name: e.name, description: `Tamaño: ${e.size || 'No definido'}. Actividad: ${e.description}`
   }));
 
   let browser: any = null;
@@ -63,6 +55,7 @@ export async function scrapeBDNS() {
     try { chromiumPath = execSync("which chromium").toString().trim(); } 
     catch (e) { chromiumPath = "chromium"; }
 
+    // UN SOLO NAVEGADOR CON RESTRICCIONES SEVERAS DE MEMORIA
     browser = await puppeteer.launch({
       headless: true,
       executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
@@ -72,12 +65,9 @@ export async function scrapeBDNS() {
         '--disable-dev-shm-usage', 
         '--disable-gpu',
         '--disable-software-rasterizer',
-        '--js-flags="--max-old-space-size=256"' 
+        '--js-flags="--max-old-space-size=256"' // CRÍTICO: Limita el uso de RAM de Chrome
       ]
     });
-
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 }); 
 
     for (const modo of MODOS_BUSQUEDA) {
       console.log(`\n======================================================`);
@@ -85,41 +75,39 @@ export async function scrapeBDNS() {
       console.log(`======================================================\n`);
 
       const stateKey = `highest_bdns_code_${modo.id}`;
-      const stateRecord = await db.query.scrapingState.findFirst({
-        where: eq(scrapingState.key, stateKey),
-      });
+      const stateRecord = await db.query.scrapingState.findFirst({ where: eq(scrapingState.key, stateKey) });
       const stopCodeLimit = stateRecord ? parseInt(stateRecord.value, 10) : 0;
       let highestCodeThisSession = stopCodeLimit;
 
-      console.log(`📍 Último código procesado para ${modo.nombre}: ${stopCodeLimit}`);
+      // =========================================================================
+      // FASE 1: RECOPILACIÓN RÁPIDA DE ENLACES (Sin leer detalles, solo extraer)
+      // =========================================================================
+      console.log(`🚀 [FASE 1] Recopilando URLs de la tabla a máxima velocidad...`);
+      let tablePage = await browser.newPage();
+      await tablePage.setViewport({ width: 1280, height: 800 }); 
 
-      await page.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
+      await tablePage.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
       await new Promise(resolve => setTimeout(resolve, 5000));
 
       try {
-        await page.evaluate(() => {
+        await tablePage.evaluate(() => {
           const headers = Array.from(document.querySelectorAll('mat-expansion-panel-header'));
           const panelOrgano = headers.find(h => h.textContent?.includes('Órgano convocante'));
-          if (panelOrgano && !panelOrgano.classList.contains('mat-expanded')) {
-            (panelOrgano as HTMLElement).click();
-          }
+          if (panelOrgano && !panelOrgano.classList.contains('mat-expanded')) (panelOrgano as HTMLElement).click();
         });
         await new Promise(resolve => setTimeout(resolve, 1500)); 
 
-        await page.evaluate((radioValue) => {
+        await tablePage.evaluate((radioValue) => {
           const radioInput = document.querySelector(`input[type="radio"][value="${radioValue}"]`);
           if (radioInput) {
             const radioContainer = radioInput.closest('mat-radio-button')?.querySelector('label');
             if (radioContainer) (radioContainer as HTMLElement).click();
           }
         }, modo.id);
-
-        console.log(`🔘 Seleccionado radio button: ${modo.nombre}`);
         await new Promise(resolve => setTimeout(resolve, 3000)); 
 
         if (modo.seleccionarEspecificos) {
-          console.log(`☑️ Aplicando checkboxes para ${modo.nombre}...`);
-          await page.evaluate((elementosDeseados) => {
+          await tablePage.evaluate((elementosDeseados) => {
             const nodos = document.querySelectorAll('mat-tree-node');
             for (let i = 0; i < nodos.length; i++) {
               const nodo = nodos[i];
@@ -129,13 +117,7 @@ export async function scrapeBDNS() {
               const textoCheckbox = labelElement.textContent?.trim().toUpperCase() || "";
               const checkbox = nodo.querySelector('mat-checkbox');
               const isChecked = checkbox?.classList.contains('mat-checkbox-checked');
-
-              let deberiaEstarMarcado = false;
-              if (elementosDeseados === 'ALL') {
-                deberiaEstarMarcado = true; 
-              } else if (Array.isArray(elementosDeseados)) {
-                deberiaEstarMarcado = (elementosDeseados as string[]).includes(textoCheckbox);
-              }
+              let deberiaEstarMarcado = (elementosDeseados === 'ALL') || (Array.isArray(elementosDeseados) && elementosDeseados.includes(textoCheckbox));
 
               if (isChecked !== deberiaEstarMarcado) {
                 const labelClickable = nodo.querySelector('label.mat-checkbox-layout');
@@ -146,27 +128,27 @@ export async function scrapeBDNS() {
           await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
-        console.log("🖱️ Haciendo clic en 'Filtrar'...");
-        await page.evaluate(() => {
+        await tablePage.evaluate(() => {
           const botones = Array.from(document.querySelectorAll('button'));
           const btnFiltrar = botones.find(btn => btn.textContent?.toLowerCase().includes('filtrar'));
           if (btnFiltrar) (btnFiltrar as HTMLElement).click();
         });
-
         await new Promise(resolve => setTimeout(resolve, 8000));
 
       } catch (err) {
-        console.error(`❌ Error configurando filtros para ${modo.nombre}. Saltando a la siguiente sección.`, err);
+        console.error(`❌ Error configurando filtros para ${modo.nombre}.`);
+        await tablePage.close().catch(()=>{});
         continue; 
       }
 
       let keepScraping = true;
       let pageCounter = 1;
+      const enlacesAProcesar = [];
 
       while (keepScraping) {
-        console.log(`\n📄 [${modo.nombre}] --- Procesando Página ${pageCounter} ---`);
+        console.log(`   📄 Leyendo tabla página ${pageCounter}...`);
 
-        const convocatoriasPagina = await page.evaluate(() => {
+        const convocatoriasPagina = await tablePage.evaluate(() => {
           const filas = Array.from(document.querySelectorAll('table tbody tr'));
           return filas.map(fila => {
             const columnas = fila.querySelectorAll('td');
@@ -187,19 +169,12 @@ export async function scrapeBDNS() {
           }).filter(item => item !== null);
         });
 
-        console.log(`🔍 Encontradas ${convocatoriasPagina.length} convocatorias en esta página.`);
-
         if (convocatoriasPagina.length === 0) {
-          console.log(`🛑 No hay resultados para ${modo.nombre}. Terminando paginación.`);
-          break;
+          keepScraping = false; break;
         }
 
-        const subvencionesAInsertarEnEstaPagina = [];
-        let updatedHighestCode = highestCodeThisSession;
-
-        for (let i = 0; i < convocatoriasPagina.length; i++) {
-          const convocatoria = convocatoriasPagina[i];
-          if (!convocatoria) continue;
+        for (const convocatoria of convocatoriasPagina) {
+          if (!convocatoria || !convocatoria.urlDetalle) continue;
 
           const codigoLimpio = convocatoria.codigoBDNS.replace(/\D/g, '');
           const currentCode = parseInt(codigoLimpio, 10);
@@ -208,191 +183,168 @@ export async function scrapeBDNS() {
           if (isNaN(currentCode)) continue;
 
           if (currentDate && currentDate < oneMonthAgo) {
-            console.log(`🛑 Deteniendo: Fecha antigua en [${modo.nombre}].`);
+            console.log(`   🛑 Deteniendo lectura: Fecha antigua alcanzada.`);
             keepScraping = false;
             break; 
           }
 
-          if (currentCode <= stopCodeLimit) {
-            continue; 
-          }
-
-          console.log(`[${i+1}/${convocatoriasPagina.length}] Analizando ${currentCode}...`);
-
-          if (convocatoria.urlDetalle) {
-
-            // ✅ PAUSA BASE MÁS LARGA (Entre 8 y 14 segundos)
-            const pausaHumana = Math.floor(Math.random() * 6000) + 8000;
-            console.log(`   ⏳ Pausa humana de ${(pausaHumana/1000).toFixed(1)}s...`);
-            await new Promise(resolve => setTimeout(resolve, pausaHumana));
-
-            let detallesExtraidos: any = null;
-            let extraccionExitosa = false;
-            let intentos = 0;
-            const maxIntentos = 3; 
-
-            while (!extraccionExitosa && intentos < maxIntentos) {
-              intentos++;
-              let context: any = null;
-              let detailPage: any = null; 
-
-              try {
-                context = await browser.createBrowserContext();
-                detailPage = await context.newPage();
-
-                const randomUserAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
-                await detailPage.setUserAgent(randomUserAgent);
-
-                await detailPage.setRequestInterception(true);
-                detailPage.on('request', (req: any) => {
-                  const type = req.resourceType();
-                  if (type === 'image' || type === 'stylesheet' || type === 'font' || type === 'media') {
-                    req.abort().catch(() => {}); 
-                  } else {
-                    req.continue().catch(() => {});
-                  }
-                });
-
-                if (intentos > 1) {
-                  // 🚨 LA CUARENTENA: Si llegamos aquí es porque falló (el gobierno nos bloqueó la IP)
-                  // Entramos en modo avión durante 65 segundos para que su cortafuegos nos perdone.
-                  console.log(`   🚨 [CORTAFUEGOS DETECTADO] Reintento ${intentos}/${maxIntentos}. Entrando en CUARENTENA de 65 segundos para resetear bloqueo de IP...`);
-                  await new Promise(resolve => setTimeout(resolve, 65000)); 
-                }
-
-                // Navegamos con un timeout estricto de 45s. Si tarda más, es bloqueo.
-                await detailPage.goto(convocatoria.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
-                await new Promise(resolve => setTimeout(resolve, 2000));
-
-                detallesExtraidos = await detailPage.evaluate(() => {
-                  const camposInteres = [ 
-                    "Órgano convocante", "Sede electrónica para la presentación de solicitudes", 
-                    "Código BDNS", "Mecanismo de Recuperación y Resiliencia", "Fecha de registro", 
-                    "Tipo de convocatoria", "Presupuesto total de la convocatoria", "Instrumento de ayuda", 
-                    "Título de la convocatoria en español", "Tipo de beneficiario elegible", 
-                    "Sector económico del beneficiario", "Región de impacto", "Finalidad (política de gasto)", 
-                    "Título de las Bases reguladoras", "Dirección electrónica de las bases reguladoras", 
-                    "¿El extracto de la convocatoria se publica en diario oficial?", 
-                    "¿Se puede solicitar indefinidamente?", "Fecha de inicio del periodo de solicitud", 
-                    "SA Number (Referencia de ayuda de estado)", "SA Number (Enlace UE)", 
-                    "Cofinanciado con Fondos UE", "Sector de productos", "Reglamento (UE)", "Objetivos" 
-                  ];
-                  const res: Record<string, string> = {};
-                  const titulos = document.querySelectorAll('.titulo-campo');
-
-                  titulos.forEach(titulo => {
-                    let clave = (titulo.textContent || "").replace('·', '').trim().replace(/\s+/g, ' '); 
-                    if (!clave) return;
-
-                    const elementoValor = titulo.nextElementSibling as HTMLElement;
-                    let valor = "";
-                    if (elementoValor) {
-                      valor = elementoValor.innerText || elementoValor.textContent || "";
-                      valor = valor.replace(/\n+/g, ' - ').replace(/\s+/g, ' ').trim();
-                      if (valor.startsWith('- ')) valor = valor.substring(2);
-                      if (valor.endsWith(' -')) valor = valor.substring(0, valor.length - 2);
-                    }
-                    res[clave] = valor || "";
-                  });
-                  return res;
-                });
-
-                extraccionExitosa = true; 
-
-              } catch (err: any) {
-                 console.error(`   ❌ Error web en (${currentCode}): ${err.message}`);
-              } finally {
-                // MUY IMPORTANTE: Cerramos la pestaña y el contexto para vaciar la RAM
-                if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(() => {});
-                if (context) await context.close().catch(() => {});
-              }
-            }
-
-            // =============================================================
-            // 2. FASE DE IA (MODO PRUEBA: DESACTIVADA)
-            // =============================================================
-            if (extraccionExitosa && detallesExtraidos) {
-               const infoCompleta = { ...convocatoria, codigoBDNS: codigoLimpio, ...detallesExtraidos };
-
-               try {
-                 console.log(`   🤖 [MODO PRUEBA] IA desactivada. Simulando rechazo automático...`);
-
-                 let algunaEmpresaCuadra = false;
-                 let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
-
-                 /* === CÓDIGO REAL DE IA (DESCOMENTAR CUANDO ESTÉ LISTO) ===
-                 let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
-                 const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
-                 iaAnalisisMasivo.matches = matchesArray;
-
-                 for (const match of matchesArray) {
-                   if (match.cuadra) {
-                     algunaEmpresaCuadra = true;
-                     console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
-                   }
-                 }
-                 ============================================================= */
-
-                 if (algunaEmpresaCuadra) {
-                   subvencionesAInsertarEnEstaPagina.push({
-                     codigoBDNS: codigoLimpio, 
-                     titulo: convocatoria.titulo,
-                     organoConvocante: convocatoria.organoConvocante,
-                     fechaRegistro: currentDate,
-                     urlDetalle: convocatoria.urlDetalle,
-                     detallesExtraidos: detallesExtraidos, 
-                     iaAnalisis: iaAnalisisMasivo
-                   });
-                   console.log(`   ⏳ Añadida a la cola de inserción de esta página.`);
-                 }
-               } catch (iaErr: any) {
-                 console.error(`   ❌ Error de la IA evaluando ${currentCode}:`, iaErr.message);
-               }
-
-               if (currentCode > updatedHighestCode) {
-                 updatedHighestCode = currentCode;
-               }
-            } else {
-               console.log(`   ⏭️ Saltando convocatoria ${currentCode} tras fallar la extracción.`);
-            }
-          }
-        } // Fin For elementos de la página
-
-        // INSERCIÓN MASIVA AL TERMINAR LA PÁGINA
-        if (subvencionesAInsertarEnEstaPagina.length > 0) {
-          try {
-            console.log(`\n💾 [BDNS - ${modo.nombre}] Insertando ${subvencionesAInsertarEnEstaPagina.length} subvenciones en BD...`);
-            await db.insert(bdnsGrants).values(subvencionesAInsertarEnEstaPagina);
-          } catch (dbErr) {
-            console.error("❌ Error guardando bloque en BD:", dbErr);
+          if (currentCode > stopCodeLimit) {
+             // ¡LO GUARDAMOS PARA LA FASE 2!
+             enlacesAProcesar.push({ ...convocatoria, currentCode, codigoLimpio, currentDate });
           }
         }
 
-        if (updatedHighestCode > highestCodeThisSession) {
-          highestCodeThisSession = updatedHighestCode;
-          try {
-            await db.insert(scrapingState).values({ key: stateKey, value: highestCodeThisSession.toString() })
-              .onConflictDoUpdate({ target: scrapingState.key, set: { value: highestCodeThisSession.toString(), updatedAt: new Date() } });
-          } catch (err) {}
-        }
-
-        // Lógica de Paginación
         if (keepScraping) {
           const SELECTOR_BOTON_SIGUIENTE = 'button.mat-paginator-navigation-next'; 
           try {
-            const estaDeshabilitado = await page.$('button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled');
+            const estaDeshabilitado = await tablePage.$('button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled');
             if (!estaDeshabilitado) {
-              await page.evaluate((sel) => { (document.querySelector(sel) as HTMLElement)?.click(); }, SELECTOR_BOTON_SIGUIENTE);
-              await new Promise(resolve => setTimeout(resolve, 6000));
+              await tablePage.evaluate((sel) => { (document.querySelector(sel) as HTMLElement)?.click(); }, SELECTOR_BOTON_SIGUIENTE);
+              await new Promise(resolve => setTimeout(resolve, 3000));
               pageCounter++;
             } else {
               keepScraping = false; 
             }
-          } catch (err) {
-            keepScraping = false;
-          }
+          } catch (err) { keepScraping = false; }
         }
       } 
+
+      // 💣 CERRAMOS LA TABLA. Hemos vaciado la RAM y nos independizamos del timeout de sesión.
+      await tablePage.close().catch(()=>{});
+      console.log(`✅ [FASE 1 COMPLETADA] Se han extraído ${enlacesAProcesar.length} enlaces nuevos para procesar.\n`);
+
+      if (enlacesAProcesar.length === 0) continue;
+
+      // =========================================================================
+      // FASE 2: EXTRACCIÓN PROFUNDA (Lenta, segura, invulnerable al timeout)
+      // =========================================================================
+      console.log(`🚀 [FASE 2] Iniciando extracción de detalles (sin límite de tiempo)...`);
+
+      const subvencionesAInsertar = [];
+      let updatedHighestCode = highestCodeThisSession;
+
+      let detailPage = await browser.newPage();
+      await detailPage.setRequestInterception(true);
+      detailPage.on('request', (req: any) => {
+        const type = req.resourceType();
+        if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
+          req.abort().catch(() => {}); 
+        } else {
+          req.continue().catch(() => {});
+        }
+      });
+
+      for (let i = 0; i < enlacesAProcesar.length; i++) {
+        const conv = enlacesAProcesar[i];
+        console.log(`[${i+1}/${enlacesAProcesar.length}] Leyendo detalle BDNS ${conv.currentCode}...`);
+
+        const pausaHumana = Math.floor(Math.random() * 4000) + 4000;
+        await new Promise(resolve => setTimeout(resolve, pausaHumana));
+
+        let detallesExtraidos: any = null;
+        let extraccionExitosa = false;
+        let intentos = 0;
+
+        while (!extraccionExitosa && intentos < 2) {
+          intentos++;
+          try {
+            if (intentos > 1) {
+              console.log(`   🚨 Reintento ${intentos}/2. Pausa obligatoria de 30s por seguridad...`);
+              await new Promise(resolve => setTimeout(resolve, 30000)); 
+            }
+
+            await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            detallesExtraidos = await detailPage.evaluate(() => {
+              const res: Record<string, string> = {};
+              const titulos = document.querySelectorAll('.titulo-campo');
+              titulos.forEach(titulo => {
+                let clave = (titulo.textContent || "").replace('·', '').trim().replace(/\s+/g, ' '); 
+                if (!clave) return;
+                const elementoValor = titulo.nextElementSibling as HTMLElement;
+                if (elementoValor) {
+                  let valor = elementoValor.innerText || elementoValor.textContent || "";
+                  valor = valor.replace(/\n+/g, ' - ').replace(/\s+/g, ' ').trim();
+                  if (valor.startsWith('- ')) valor = valor.substring(2);
+                  if (valor.endsWith(' -')) valor = valor.substring(0, valor.length - 2);
+                  res[clave] = valor;
+                }
+              });
+              return res;
+            });
+
+            extraccionExitosa = true; 
+            // 🧹 TRUCO DE ORO: Vamos a una página en blanco para liberar la RAM del DOM al instante
+            await detailPage.goto('about:blank').catch(()=>{});
+
+          } catch (err: any) {
+             console.error(`   ❌ Error web: ${err.message}`);
+          } 
+        }
+
+        if (extraccionExitosa && detallesExtraidos) {
+           const infoCompleta = { ...conv, codigoBDNS: conv.codigoLimpio, ...detallesExtraidos };
+
+           try {
+             // =============================================================
+             // 🤖 MODO PRUEBA: IA DESACTIVADA
+             // =============================================================
+             console.log(`   🤖 [MODO PRUEBA] IA desactivada. Simulando rechazo automático...`);
+             let algunaEmpresaCuadra = false;
+             let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
+
+             /* === DESCOMENTAR PARA ACTIVAR IA REAL ===
+             let algunaEmpresaCuadra = false;
+             let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
+             const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
+             iaAnalisisMasivo.matches = matchesArray;
+             for (const match of matchesArray) {
+               if (match.cuadra) {
+                 algunaEmpresaCuadra = true;
+                 console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
+               }
+             }
+             ============================================================= */
+
+             if (algunaEmpresaCuadra) {
+               subvencionesAInsertar.push({
+                 codigoBDNS: conv.codigoLimpio, 
+                 titulo: conv.titulo,
+                 organoConvocante: conv.organoConvocante,
+                 fechaRegistro: conv.currentDate,
+                 urlDetalle: conv.urlDetalle,
+                 detallesExtraidos: detallesExtraidos, 
+                 iaAnalisis: iaAnalisisMasivo
+               });
+               console.log(`   ⏳ Añadida a cola.`);
+             }
+           } catch (iaErr: any) {}
+
+           if (conv.currentCode > updatedHighestCode) updatedHighestCode = conv.currentCode;
+        } else {
+           console.log(`   ⏭️ Saltado tras fallar.`);
+        }
+      } 
+
+      await detailPage.close().catch(()=>{});
+
+      // ==========================================
+      // GUARDADO EN BASE DE DATOS
+      // ==========================================
+      if (subvencionesAInsertar.length > 0) {
+        try {
+          console.log(`\n💾 Insertando ${subvencionesAInsertar.length} subvenciones en BD...`);
+          await db.insert(bdnsGrants).values(subvencionesAInsertar);
+        } catch (dbErr) { console.error("❌ Error guardando en BD:", dbErr); }
+      }
+
+      if (updatedHighestCode > highestCodeThisSession) {
+        try {
+          await db.insert(scrapingState).values({ key: stateKey, value: updatedHighestCode.toString() })
+            .onConflictDoUpdate({ target: scrapingState.key, set: { value: updatedHighestCode.toString(), updatedAt: new Date() } });
+        } catch (err) {}
+      }
     } 
 
     console.log(`\n🎉 Scraping BDNS completado para todas las secciones.`);
@@ -404,6 +356,6 @@ export async function scrapeBDNS() {
   } finally {
     isBdnsScrapingRunning = false;
     if (browser) await browser.close().catch(() => {});
-    console.log("🔓 Cerrojo del scraper BDNS liberado.");
+    console.log("🔓 Cerrojo liberado. Sistema limpio.");
   }
 }
