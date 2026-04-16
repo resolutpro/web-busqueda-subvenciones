@@ -1,9 +1,14 @@
-import puppeteer from "puppeteer";
+// Importamos puppeteer-extra y el plugin stealth
+import puppeteer from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { execSync } from "child_process";
 import { db } from "../db"; 
 import { bdnsGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import { checkGrantWithAI } from "./ai-evaluator";
+
+// Aplicamos el camuflaje
+puppeteer.use(StealthPlugin());
 
 function parseBDNSDate(dateStr: string) {
   if (!dateStr || dateStr === "") return null;
@@ -18,13 +23,6 @@ const MODOS_BUSQUEDA = [
   { id: 'O', nombre: 'Otros órganos', seleccionarEspecificos: 'ALL' }
 ];
 
-const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-];
-
 let isBdnsScrapingRunning = false;
 
 export async function scrapeBDNS() {
@@ -34,7 +32,7 @@ export async function scrapeBDNS() {
   }
 
   isBdnsScrapingRunning = true;
-  console.log("🚀 Iniciando scraping BDNS (ARQUITECTURA DE 2 FASES)...");
+  console.log("🚀 Iniciando scraping BDNS (MODO STEALTH + TORTUGA)...");
 
   console.log("🧹 Limpiando RAM del servidor...");
   try { execSync("pkill -f chromium"); } catch (e) {}
@@ -215,9 +213,9 @@ export async function scrapeBDNS() {
       if (enlacesAProcesar.length === 0) continue;
 
       // =========================================================================
-      // FASE 2: EXTRACCIÓN AISLADA (NUEVA ESTRATEGIA AMNESIA)
+      // FASE 2: EXTRACCIÓN DETALLADA (MODO TORTUGA)
       // =========================================================================
-      console.log(`🚀 [FASE 2] Iniciando extracción de detalles...`);
+      console.log(`🚀 [FASE 2] Iniciando extracción de detalles (Lenta y segura)...`);
 
       const subvencionesAInsertar = [];
       let updatedHighestCode = highestCodeThisSession;
@@ -226,7 +224,10 @@ export async function scrapeBDNS() {
         const conv = enlacesAProcesar[i];
         console.log(`[${i+1}/${enlacesAProcesar.length}] Leyendo detalle BDNS ${conv.currentCode}...`);
 
-        const pausaHumana = Math.floor(Math.random() * 4000) + 4000;
+        // 🐢 PAUSA TORTUGA: Entre 15 y 25 segundos entre petición y petición.
+        // Esto garantiza mantenernos muy por debajo del límite del WAF.
+        const pausaHumana = Math.floor(Math.random() * 10000) + 15000;
+        console.log(`   ⏳ Pausa Tortuga de ${(pausaHumana/1000).toFixed(1)}s...`);
         await new Promise(resolve => setTimeout(resolve, pausaHumana));
 
         let detallesExtraidos: any = null;
@@ -239,12 +240,8 @@ export async function scrapeBDNS() {
           let detailPage: any = null;
 
           try {
-            // ✅ CREAMOS UNA BURBUJA NUEVA POR CADA ENLACE. No arrastramos cookies.
             context = await browser.createBrowserContext();
             detailPage = await context.newPage();
-
-            const randomUserAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
-            await detailPage.setUserAgent(randomUserAgent);
 
             await detailPage.setRequestInterception(true);
             detailPage.on('request', (req: any) => {
@@ -256,13 +253,17 @@ export async function scrapeBDNS() {
             });
 
             if (intentos > 1) {
-              // 🚨 SI FALLA, EL GOBIERNO NOS HA BANEADO. HACEMOS CUARENTENA DE 90 SEGUNDOS.
-              console.log(`   🚨 Reintento ${intentos}/3. Baneo detectado. Esperando 90s para limpieza de IP...`);
-              await new Promise(resolve => setTimeout(resolve, 90000)); 
+              // 🚨 LA GRAN SIESTA: Si nos han bloqueado, dormimos 5 MINUTOS (300.000 ms)
+              // Esto es vital porque los bloqueos de IP duran varios minutos.
+              console.log(`   🚨 [CORTAFUEGOS DETECTADO] Reintento ${intentos}/3. ¡Dormimos 5 minutos enteros para limpiar la IP!...`);
+              await new Promise(resolve => setTimeout(resolve, 300000)); 
             }
 
+            // Cambiamos a 'domcontentloaded' que es menos estricto, y ampliamos el timeout
             await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
-            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            // En vez de esperar un tiempo fijo, esperamos hasta que el título exista en la página (máx 30s extras)
+            await detailPage.waitForSelector('.titulo-campo', { timeout: 30000 });
 
             detallesExtraidos = await detailPage.evaluate(() => {
               const res: Record<string, string> = {};
@@ -287,7 +288,6 @@ export async function scrapeBDNS() {
           } catch (err: any) {
              console.error(`   ❌ Error web: ${err.message}`);
           } finally {
-            // ✅ DESTRUIMOS LA BURBUJA. Liberamos RAM y borramos nuestro rastro.
             if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(()=>{});
             if (context) await context.close().catch(()=>{});
           }
@@ -302,6 +302,7 @@ export async function scrapeBDNS() {
              let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
 
              /* === DESCOMENTAR PARA ACTIVAR IA REAL ===
+             let algunaEmpresaCuadra = false;
              let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
              const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
              iaAnalisisMasivo.matches = matchesArray;
@@ -329,18 +330,18 @@ export async function scrapeBDNS() {
 
            if (conv.currentCode > updatedHighestCode) {
              updatedHighestCode = conv.currentCode;
-             // Guardamos progreso intermedio por si se corta
+             // Guardado de estado intermedio
              try {
                 await db.insert(scrapingState).values({ key: stateKey, value: updatedHighestCode.toString() })
                   .onConflictDoUpdate({ target: scrapingState.key, set: { value: updatedHighestCode.toString(), updatedAt: new Date() } });
              } catch(e) {}
            }
         } else {
-           console.log(`   ⏭️ Saltado tras fallar.`);
+           console.log(`   ⏭️ Saltado tras fallar definitivamente.`);
         }
       } 
 
-      // GUARDADO EN BD AL FINAL DE CADA MODO
+      // GUARDADO EN BD
       if (subvencionesAInsertar.length > 0) {
         try {
           console.log(`\n💾 Insertando ${subvencionesAInsertar.length} subvenciones en BD...`);
@@ -354,10 +355,10 @@ export async function scrapeBDNS() {
       .onConflictDoUpdate({ target: scrapingState.key, set: { value: new Date().toISOString(), updatedAt: new Date() }});
 
   } catch (error) {
-    console.error("💀 Error CRÍTICO (Nivel Superior):", error);
+    console.error("💀 Error CRÍTICO:", error);
   } finally {
     isBdnsScrapingRunning = false;
     if (browser) await browser.close().catch(() => {});
-    console.log("🔓 Cerrojo liberado. Sistema limpio.");
+    console.log("🔓 Cerrojo liberado.");
   }
 }
