@@ -6,6 +6,7 @@ import { bdnsGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import { checkGrantWithAI } from "./ai-evaluator";
 
+// Aplicamos el camuflaje
 puppeteer.use(StealthPlugin());
 
 function parseBDNSDate(dateStr: string) {
@@ -14,15 +15,11 @@ function parseBDNSDate(dateStr: string) {
   return new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
 }
 
-// 🔥 LA NUEVA LIMPIEZA PROFUNDA: Mata procesos y borra archivos basura
+// Limpieza militar
 function aniquilarZombis() {
   console.log("   🔨 [SISTEMA] Ejecutando limpieza militar de RAM y Disco...");
-
-  // 1. Matar procesos
   try { execSync("pkill -9 -f chromium"); } catch (e) {}
   try { execSync("pkill -9 -f chrome"); } catch (e) {}
-
-  // 2. Borrar las carpetas ocultas de caché que nos delatan
   try { execSync("rm -rf /tmp/puppeteer*"); } catch (e) {}
   try { execSync("rm -rf /tmp/.com.google.Chrome*"); } catch (e) {}
   try { execSync("rm -rf /tmp/.org.chromium.Chromium*"); } catch (e) {}
@@ -47,9 +44,8 @@ export async function scrapeBDNS() {
   const GLOBAL_START_TIME = Date.now();
   let shouldAutoResume = false;
 
-  console.log("🚀 Iniciando BDNS (ESTRATEGIA GOLPE Y FUGA: TANDAS DE 4 MINUTOS)...");
+  console.log("🚀 Iniciando BDNS (GOLPE Y FUGA + CARGA ULTRA-RÁPIDA)...");
 
-  // Llamamos a la limpieza absoluta antes de empezar
   aniquilarZombis();
 
   const oneMonthAgo = new Date();
@@ -99,11 +95,22 @@ export async function scrapeBDNS() {
       let tablePage = await browser.newPage();
       await tablePage.setViewport({ width: 1280, height: 800 }); 
 
+      // 🔥 CORRECCIÓN: Bloqueamos imágenes y recursos pesados en la PÁGINA PRINCIPAL para que no colapse Replit
+      await tablePage.setRequestInterception(true);
+      tablePage.on('request', (req: any) => {
+        if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+          req.abort().catch(() => {}); 
+        } else {
+          req.continue().catch(() => {});
+        }
+      });
+
       try {
-        await tablePage.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
+        // 🔥 CORRECCIÓN CLAVE: 'domcontentloaded' en lugar de 'networkidle2'. ¡Carga instantánea!
+        await tablePage.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "domcontentloaded", timeout: 60000 });
         await new Promise(resolve => setTimeout(resolve, 5000));
       } catch (navError) {
-        console.log(`❌ Error al cargar la página principal. Activando aborto...`);
+        console.log(`❌ Error al cargar la página principal (Timeout/WAF). Activando aborto...`);
         throw new Error("WAF_BLOCK"); 
       }
 
@@ -250,8 +257,8 @@ export async function scrapeBDNS() {
         const conv = enlacesAProcesar[i];
         console.log(`[${i+1}/${enlacesAProcesar.length}] Leyendo detalle BDNS ${conv.currentCode}...`);
 
-        const pausaHumana = Math.floor(Math.random() * 30000) + 20000;
-        await new Promise(resolve => setTimeout(resolve, pausaHumana));
+        //const pausaHumana = Math.floor(Math.random() * 30000) + 20000;
+        //await new Promise(resolve => setTimeout(resolve, pausaHumana));
 
         let detallesExtraidos: any = null;
         let extraccionExitosa = false;
@@ -358,22 +365,19 @@ export async function scrapeBDNS() {
     isBdnsScrapingRunning = false;
 
     if (browser) await browser.close().catch(() => {});
-
-    // 🔥 EL MAZO NUCLEAR SIEMPRE LLEVA LA LIMPIEZA DE DISCO AHORA
     aniquilarZombis();
 
     console.log("🔓 Cerrojo liberado. Sistema desinfectado de zombis y basura temporal.");
 
     if (shouldAutoResume) {
        console.log("===============================================================");
-       // 🔥 EXTENDEMOS LA PAUSA A 6 MINUTOS. 3 min a veces no es suficiente para que el firewall se olvide de la IP.
-       console.log("💤 Entrando en letargo profundo de 6 MINUTOS para que el firewall olvide nuestra IP...");
+       console.log("💤 Entrando en letargo profundo de 10 MINUTOS para que el firewall olvide nuestra IP...");
        console.log("===============================================================");
 
        setTimeout(() => {
            console.log("\n⏰ ¡Letargo terminado! El Fénix resurge...");
            scrapeBDNS();
-       }, 360000); // 360.000 ms = 6 Minutos
+       }, 600000); // 600.000 ms = 10 Minutos
     }
   }
 }
