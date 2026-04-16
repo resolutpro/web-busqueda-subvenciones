@@ -18,18 +18,24 @@ const MODOS_BUSQUEDA = [
   { id: 'O', nombre: 'Otros órganos', seleccionarEspecificos: 'ALL' }
 ];
 
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+];
+
 let isBdnsScrapingRunning = false;
 
 export async function scrapeBDNS() {
   if (isBdnsScrapingRunning) {
-    console.log("⚠️ [BDNS] Intento bloqueado: Ya hay un proceso de scraping ejecutándose actualmente.");
+    console.log("⚠️ [BDNS] Intento bloqueado: Ya hay un proceso ejecutándose.");
     return;
   }
 
   isBdnsScrapingRunning = true;
   console.log("🚀 Iniciando scraping BDNS (ARQUITECTURA DE 2 FASES)...");
 
-  // Limpieza agresiva de RAM
   console.log("🧹 Limpiando RAM del servidor...");
   try { execSync("pkill -f chromium"); } catch (e) {}
   try { execSync("pkill -f chrome"); } catch (e) {}
@@ -55,7 +61,6 @@ export async function scrapeBDNS() {
     try { chromiumPath = execSync("which chromium").toString().trim(); } 
     catch (e) { chromiumPath = "chromium"; }
 
-    // UN SOLO NAVEGADOR CON RESTRICCIONES SEVERAS DE MEMORIA
     browser = await puppeteer.launch({
       headless: true,
       executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
@@ -64,14 +69,13 @@ export async function scrapeBDNS() {
         '--disable-setuid-sandbox', 
         '--disable-dev-shm-usage', 
         '--disable-gpu',
-        '--disable-software-rasterizer',
-        '--js-flags="--max-old-space-size=256"' // CRÍTICO: Limita el uso de RAM de Chrome
+        '--js-flags="--max-old-space-size=256"'
       ]
     });
 
     for (const modo of MODOS_BUSQUEDA) {
       console.log(`\n======================================================`);
-      console.log(`🔎 INICIANDO BÚSQUEDA PARA: ${modo.nombre}`);
+      console.log(`🔎 BÚSQUEDA: ${modo.nombre}`);
       console.log(`======================================================\n`);
 
       const stateKey = `highest_bdns_code_${modo.id}`;
@@ -80,9 +84,9 @@ export async function scrapeBDNS() {
       let highestCodeThisSession = stopCodeLimit;
 
       // =========================================================================
-      // FASE 1: RECOPILACIÓN RÁPIDA DE ENLACES (Sin leer detalles, solo extraer)
+      // FASE 1: RECOPILACIÓN RÁPIDA DE ENLACES
       // =========================================================================
-      console.log(`🚀 [FASE 1] Recopilando URLs de la tabla a máxima velocidad...`);
+      console.log(`🚀 [FASE 1] Recopilando URLs de la tabla...`);
       let tablePage = await browser.newPage();
       await tablePage.setViewport({ width: 1280, height: 800 }); 
 
@@ -136,7 +140,7 @@ export async function scrapeBDNS() {
         await new Promise(resolve => setTimeout(resolve, 8000));
 
       } catch (err) {
-        console.error(`❌ Error configurando filtros para ${modo.nombre}.`);
+        console.error(`❌ Error configurando filtros. Saltando sección.`);
         await tablePage.close().catch(()=>{});
         continue; 
       }
@@ -153,7 +157,6 @@ export async function scrapeBDNS() {
           return filas.map(fila => {
             const columnas = fila.querySelectorAll('td');
             if (columnas.length < 3 || columnas[0].innerText.includes("Cargando")) return null; 
-
             const celdaCodigo = columnas[0];
             const celdaFechaRegistro = columnas[4]; 
             const celdaTitulo = columnas[5];
@@ -181,15 +184,12 @@ export async function scrapeBDNS() {
           const currentDate = parseBDNSDate(convocatoria.fechaRegistro);
 
           if (isNaN(currentCode)) continue;
-
           if (currentDate && currentDate < oneMonthAgo) {
-            console.log(`   🛑 Deteniendo lectura: Fecha antigua alcanzada.`);
             keepScraping = false;
             break; 
           }
 
           if (currentCode > stopCodeLimit) {
-             // ¡LO GUARDAMOS PARA LA FASE 2!
              enlacesAProcesar.push({ ...convocatoria, currentCode, codigoLimpio, currentDate });
           }
         }
@@ -209,30 +209,18 @@ export async function scrapeBDNS() {
         }
       } 
 
-      // 💣 CERRAMOS LA TABLA. Hemos vaciado la RAM y nos independizamos del timeout de sesión.
       await tablePage.close().catch(()=>{});
-      console.log(`✅ [FASE 1 COMPLETADA] Se han extraído ${enlacesAProcesar.length} enlaces nuevos para procesar.\n`);
+      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces.\n`);
 
       if (enlacesAProcesar.length === 0) continue;
 
       // =========================================================================
-      // FASE 2: EXTRACCIÓN PROFUNDA (Lenta, segura, invulnerable al timeout)
+      // FASE 2: EXTRACCIÓN AISLADA (NUEVA ESTRATEGIA AMNESIA)
       // =========================================================================
-      console.log(`🚀 [FASE 2] Iniciando extracción de detalles (sin límite de tiempo)...`);
+      console.log(`🚀 [FASE 2] Iniciando extracción de detalles...`);
 
       const subvencionesAInsertar = [];
       let updatedHighestCode = highestCodeThisSession;
-
-      let detailPage = await browser.newPage();
-      await detailPage.setRequestInterception(true);
-      detailPage.on('request', (req: any) => {
-        const type = req.resourceType();
-        if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
-          req.abort().catch(() => {}); 
-        } else {
-          req.continue().catch(() => {});
-        }
-      });
 
       for (let i = 0; i < enlacesAProcesar.length; i++) {
         const conv = enlacesAProcesar[i];
@@ -245,15 +233,35 @@ export async function scrapeBDNS() {
         let extraccionExitosa = false;
         let intentos = 0;
 
-        while (!extraccionExitosa && intentos < 2) {
+        while (!extraccionExitosa && intentos < 3) {
           intentos++;
+          let context: any = null;
+          let detailPage: any = null;
+
           try {
+            // ✅ CREAMOS UNA BURBUJA NUEVA POR CADA ENLACE. No arrastramos cookies.
+            context = await browser.createBrowserContext();
+            detailPage = await context.newPage();
+
+            const randomUserAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+            await detailPage.setUserAgent(randomUserAgent);
+
+            await detailPage.setRequestInterception(true);
+            detailPage.on('request', (req: any) => {
+              if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+                req.abort().catch(() => {}); 
+              } else {
+                req.continue().catch(() => {});
+              }
+            });
+
             if (intentos > 1) {
-              console.log(`   🚨 Reintento ${intentos}/2. Pausa obligatoria de 30s por seguridad...`);
-              await new Promise(resolve => setTimeout(resolve, 30000)); 
+              // 🚨 SI FALLA, EL GOBIERNO NOS HA BANEADO. HACEMOS CUARENTENA DE 90 SEGUNDOS.
+              console.log(`   🚨 Reintento ${intentos}/3. Baneo detectado. Esperando 90s para limpieza de IP...`);
+              await new Promise(resolve => setTimeout(resolve, 90000)); 
             }
 
-            await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
+            await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
             await new Promise(resolve => setTimeout(resolve, 2000));
 
             detallesExtraidos = await detailPage.evaluate(() => {
@@ -275,27 +283,25 @@ export async function scrapeBDNS() {
             });
 
             extraccionExitosa = true; 
-            // 🧹 TRUCO DE ORO: Vamos a una página en blanco para liberar la RAM del DOM al instante
-            await detailPage.goto('about:blank').catch(()=>{});
 
           } catch (err: any) {
              console.error(`   ❌ Error web: ${err.message}`);
-          } 
+          } finally {
+            // ✅ DESTRUIMOS LA BURBUJA. Liberamos RAM y borramos nuestro rastro.
+            if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(()=>{});
+            if (context) await context.close().catch(()=>{});
+          }
         }
 
         if (extraccionExitosa && detallesExtraidos) {
            const infoCompleta = { ...conv, codigoBDNS: conv.codigoLimpio, ...detallesExtraidos };
 
            try {
-             // =============================================================
-             // 🤖 MODO PRUEBA: IA DESACTIVADA
-             // =============================================================
              console.log(`   🤖 [MODO PRUEBA] IA desactivada. Simulando rechazo automático...`);
              let algunaEmpresaCuadra = false;
              let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
 
              /* === DESCOMENTAR PARA ACTIVAR IA REAL ===
-             let algunaEmpresaCuadra = false;
              let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
              const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
              iaAnalisisMasivo.matches = matchesArray;
@@ -321,33 +327,29 @@ export async function scrapeBDNS() {
              }
            } catch (iaErr: any) {}
 
-           if (conv.currentCode > updatedHighestCode) updatedHighestCode = conv.currentCode;
+           if (conv.currentCode > updatedHighestCode) {
+             updatedHighestCode = conv.currentCode;
+             // Guardamos progreso intermedio por si se corta
+             try {
+                await db.insert(scrapingState).values({ key: stateKey, value: updatedHighestCode.toString() })
+                  .onConflictDoUpdate({ target: scrapingState.key, set: { value: updatedHighestCode.toString(), updatedAt: new Date() } });
+             } catch(e) {}
+           }
         } else {
            console.log(`   ⏭️ Saltado tras fallar.`);
         }
       } 
 
-      await detailPage.close().catch(()=>{});
-
-      // ==========================================
-      // GUARDADO EN BASE DE DATOS
-      // ==========================================
+      // GUARDADO EN BD AL FINAL DE CADA MODO
       if (subvencionesAInsertar.length > 0) {
         try {
           console.log(`\n💾 Insertando ${subvencionesAInsertar.length} subvenciones en BD...`);
           await db.insert(bdnsGrants).values(subvencionesAInsertar);
         } catch (dbErr) { console.error("❌ Error guardando en BD:", dbErr); }
       }
-
-      if (updatedHighestCode > highestCodeThisSession) {
-        try {
-          await db.insert(scrapingState).values({ key: stateKey, value: updatedHighestCode.toString() })
-            .onConflictDoUpdate({ target: scrapingState.key, set: { value: updatedHighestCode.toString(), updatedAt: new Date() } });
-        } catch (err) {}
-      }
     } 
 
-    console.log(`\n🎉 Scraping BDNS completado para todas las secciones.`);
+    console.log(`\n🎉 Scraping BDNS completado.`);
     await db.insert(scrapingState).values({ key: "last_bdns_sync", value: new Date().toISOString() })
       .onConflictDoUpdate({ target: scrapingState.key, set: { value: new Date().toISOString(), updatedAt: new Date() }});
 
