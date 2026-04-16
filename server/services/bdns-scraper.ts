@@ -1,3 +1,4 @@
+// Importamos puppeteer-extra y el plugin stealth
 import puppeteer from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { execSync } from "child_process";
@@ -6,6 +7,7 @@ import { bdnsGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import { checkGrantWithAI } from "./ai-evaluator";
 
+// Aplicamos el camuflaje
 puppeteer.use(StealthPlugin());
 
 function parseBDNSDate(dateStr: string) {
@@ -25,12 +27,12 @@ let isBdnsScrapingRunning = false;
 
 export async function scrapeBDNS() {
   if (isBdnsScrapingRunning) {
-    console.log("⚠️ [BDNS] Proceso bloqueado: Ya hay un scraping en curso.");
+    console.log("⚠️ [BDNS] Intento bloqueado: Ya hay un proceso ejecutándose.");
     return;
   }
 
   isBdnsScrapingRunning = true;
-  console.log("🚀 Iniciando scraping BDNS (TÉCNICA FANTASMA: FETCH + INYECCIÓN OFFLINE)...");
+  console.log("🚀 Iniciando scraping BDNS (HUMANO REAL + ABORTO SEGURO)...");
 
   console.log("🧹 Limpiando RAM del servidor...");
   try { execSync("pkill -f chromium"); } catch (e) {}
@@ -39,7 +41,7 @@ export async function scrapeBDNS() {
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
   oneMonthAgo.setHours(0, 0, 0, 0); 
-  console.log(`\n📅 Límite de antigüedad -> ${oneMonthAgo.toLocaleDateString('es-ES')}`);
+  console.log(`\n📅 ATENCIÓN: Límite de antigüedad -> ${oneMonthAgo.toLocaleDateString('es-ES')}`);
 
   const todasLasEmpresas = await db.select().from(companies);
   if (todasLasEmpresas.length === 0) {
@@ -60,11 +62,14 @@ export async function scrapeBDNS() {
   const puppeteerOptions = {
     headless: true,
     executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
+    timeout: 120000, 
+    protocolTimeout: 240000,
     args: [
       '--no-sandbox', 
       '--disable-setuid-sandbox', 
       '--disable-dev-shm-usage', 
-      '--disable-gpu'
+      '--disable-gpu',
+      '--js-flags="--max-old-space-size=256"'
     ]
   };
 
@@ -138,6 +143,7 @@ export async function scrapeBDNS() {
         await new Promise(resolve => setTimeout(resolve, 8000));
 
       } catch (err) {
+        console.error(`❌ Error configurando filtros. Saltando sección.`);
         await tablePage.close().catch(()=>{});
         continue; 
       }
@@ -183,8 +189,9 @@ export async function scrapeBDNS() {
           if (isNaN(currentCode)) continue;
 
           if (currentDate) {
-            if (currentDate < oneMonthAgo) {
-              console.log(`   🛑 Freno activado: Fecha antigua alcanzada.`);
+            const esAntigua = currentDate < oneMonthAgo;
+            if (esAntigua) {
+              console.log(`   🛑 Freno activado: Hemos llegado a una fecha antigua (${currentDate.toLocaleDateString('es-ES')}).`);
               keepScraping = false;
               break; 
             }
@@ -213,92 +220,84 @@ export async function scrapeBDNS() {
       } 
 
       await tablePage.close().catch(()=>{});
-      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces válidos.\n`);
+
+      // ✅ Invertimos el array para ir del más viejo al más nuevo.
+      // Así, si se corta, la BD guarda el límite por el que íbamos de forma segura.
+      enlacesAProcesar.reverse();
+      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces. Procesando del más antiguo al más nuevo...\n`);
 
       if (enlacesAProcesar.length === 0) continue;
 
       // =========================================================================
-      // FASE 2: EXTRACCIÓN FANTASMA (HTTP FETCH NATIVO + PARSEO OFFLINE)
+      // FASE 2: EXTRACCIÓN HUMANA (CON ABORTO EN CASO DE BLOQUEO)
       // =========================================================================
-      console.log(`🚀 [FASE 2] Iniciando extracción fantasma (Inmune a Timeouts de Puppeteer)...`);
+      console.log(`🚀 [FASE 2] Iniciando extracción de detalles...`);
 
       const subvencionesAInsertar = [];
       let updatedHighestCode = highestCodeThisSession;
 
-      // Creamos UNA SOLA PESTAÑA ciega y sorda
-      let detailPage = await browser.newPage();
-      await detailPage.setRequestInterception(true);
-      // 🔥 LA MAGIA: Bloqueamos absolutamente TODO el tráfico de internet de esta pestaña
-      detailPage.on('request', (req: any) => {
-        req.abort().catch(() => {});
-      });
-
       for (let i = 0; i < enlacesAProcesar.length; i++) {
         const conv = enlacesAProcesar[i];
-        console.log(`[${i+1}/${enlacesAProcesar.length}] Descargando BDNS ${conv.currentCode} silenciosamente...`);
+        console.log(`[${i+1}/${enlacesAProcesar.length}] Leyendo detalle BDNS ${conv.currentCode}...`);
 
-        // Pausa ligera entre 3 y 6 segundos para no hacer spam al servidor
-        const pausa = Math.floor(Math.random() * 3000) + 3000;
-        await new Promise(resolve => setTimeout(resolve, pausa));
+        // 👨‍💻 PAUSA HUMANA REALISTA: Entre 20 y 50 segundos. Un humano tarda esto en leer.
+        const pausaHumana = Math.floor(Math.random() * 50000) + 20000;
+        console.log(`   ⏳ Lector humano activo: leyendo la web durante ${(pausaHumana/1000).toFixed(1)}s...`);
+        await new Promise(resolve => setTimeout(resolve, pausaHumana));
 
         let detallesExtraidos: any = null;
-        let htmlContent = "";
-        let fetchSuccess = false;
+        let context: any = null;
+        let detailPage: any = null;
 
-        // 1. DESCARGAMOS EL HTML USANDO NODE.JS NATIVO (NO PUPPETEER)
         try {
-          const response = await fetch(conv.urlDetalle, {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-              "Accept-Language": "es-ES,es;q=0.9"
+          context = await browser.createBrowserContext();
+          detailPage = await context.newPage();
+
+          await detailPage.setRequestInterception(true);
+          detailPage.on('request', (req: any) => {
+            if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+              req.abort().catch(() => {}); 
+            } else {
+              req.continue().catch(() => {});
             }
           });
 
-          if (response.ok) {
-            htmlContent = await response.text();
-            fetchSuccess = true;
-          } else {
-            console.log(`   🚨 El servidor devolvió estado ${response.status}. Descansando 60s por seguridad...`);
-            await new Promise(resolve => setTimeout(resolve, 60000));
-          }
-        } catch (e: any) {
-          console.error(`   ❌ Error de Fetch HTTP: ${e.message}`);
-        }
+          // Timeout de 60 segundos. Si tarda más, nos han bloqueado.
+          await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
+          await detailPage.waitForSelector('.titulo-campo', { timeout: 30000 });
 
-        // 2. SI TENEMOS EL HTML, SE LO INYECTAMOS A LA PESTAÑA OFFLINE PARA PARSEARLO
-        if (fetchSuccess && htmlContent.includes("titulo-campo")) {
-          try {
-            // Puppeteer procesa el string localmente, SIN NAVEGAR. 
-            await detailPage.setContent(htmlContent, { waitUntil: "domcontentloaded" });
-
-            detallesExtraidos = await detailPage.evaluate(() => {
-              const res: Record<string, string> = {};
-              const titulos = document.querySelectorAll('.titulo-campo');
-              titulos.forEach(titulo => {
-                let clave = (titulo.textContent || "").replace('·', '').trim().replace(/\s+/g, ' '); 
-                if (!clave) return;
-                const elementoValor = titulo.nextElementSibling as HTMLElement;
-                if (elementoValor) {
-                  let valor = elementoValor.innerText || elementoValor.textContent || "";
-                  valor = valor.replace(/\n+/g, ' - ').replace(/\s+/g, ' ').trim();
-                  if (valor.startsWith('- ')) valor = valor.substring(2);
-                  if (valor.endsWith(' -')) valor = valor.substring(0, valor.length - 2);
-                  res[clave] = valor;
-                }
-              });
-              return res;
+          detallesExtraidos = await detailPage.evaluate(() => {
+            const res: Record<string, string> = {};
+            const titulos = document.querySelectorAll('.titulo-campo');
+            titulos.forEach(titulo => {
+              let clave = (titulo.textContent || "").replace('·', '').trim().replace(/\s+/g, ' '); 
+              if (!clave) return;
+              const elementoValor = titulo.nextElementSibling as HTMLElement;
+              if (elementoValor) {
+                let valor = elementoValor.innerText || elementoValor.textContent || "";
+                valor = valor.replace(/\n+/g, ' - ').replace(/\s+/g, ' ').trim();
+                if (valor.startsWith('- ')) valor = valor.substring(2);
+                if (valor.endsWith(' -')) valor = valor.substring(0, valor.length - 2);
+                res[clave] = valor;
+              }
             });
+            return res;
+          });
 
-            // Vaciamos la memoria de la pestaña inyectando un string vacío
-            await detailPage.setContent("<html></html>"); 
+        } catch (err: any) {
+           console.error(`   ❌ Cortafuegos bloqueando la petición: ${err.message}`);
 
-          } catch (e: any) {
-            console.error(`   ❌ Error parseando HTML: ${e.message}`);
-          }
+           // 🚨 EL ABORTO: Aquí está la magia que propusiste.
+           // Si falla, significa que el cortafuegos nos cerró la puerta. No reintentamos.
+           // Lanzamos un error especial que romperá todos los bucles y cerrará el programa.
+           throw new Error("WAF_BLOCK");
+
+        } finally {
+          if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(()=>{});
+          if (context) await context.close().catch(()=>{});
         }
 
-        if (detallesExtraidos && Object.keys(detallesExtraidos).length > 0) {
+        if (detallesExtraidos) {
            const infoCompleta = { ...conv, codigoBDNS: conv.codigoLimpio, ...detallesExtraidos };
 
            try {
@@ -333,6 +332,8 @@ export async function scrapeBDNS() {
              }
            } catch (iaErr: any) {}
 
+           // Guardado INMEDIATO del progreso en BD
+           // Así, si se aborta en la siguiente, sabemos que hemos llegado hasta aquí
            if (conv.currentCode > updatedHighestCode) {
              updatedHighestCode = conv.currentCode;
              try {
@@ -340,14 +341,10 @@ export async function scrapeBDNS() {
                   .onConflictDoUpdate({ target: scrapingState.key, set: { value: updatedHighestCode.toString(), updatedAt: new Date() } });
              } catch(e) {}
            }
-        } else {
-           console.log(`   ⏭️ Saltado (HTML no pudo ser extraído).`);
         }
       } 
 
-      await detailPage.close().catch(()=>{});
-
-      // GUARDADO EN BD
+      // GUARDADO DE SUBVENCIONES QUE HAN CUADRADO
       if (subvencionesAInsertar.length > 0) {
         try {
           console.log(`\n💾 Insertando ${subvencionesAInsertar.length} subvenciones en BD...`);
@@ -360,11 +357,17 @@ export async function scrapeBDNS() {
     await db.insert(scrapingState).values({ key: "last_bdns_sync", value: new Date().toISOString() })
       .onConflictDoUpdate({ target: scrapingState.key, set: { value: new Date().toISOString(), updatedAt: new Date() }});
 
-  } catch (error) {
-    console.error("💀 Error CRÍTICO:", error);
+  } catch (error: any) {
+    if (error.message === "WAF_BLOCK") {
+       console.log("\n🛑 [ESTRATEGIA ACTIVA] El cortafuegos se ha puesto agresivo.");
+       console.log("🛑 Cerramos el proceso por completo para evadirlo.");
+       console.log("✅ El progreso está guardado en la Base de Datos. La próxima ejecución continuará donde lo dejamos.\n");
+    } else {
+       console.error("💀 Error CRÍTICO:", error);
+    }
   } finally {
     isBdnsScrapingRunning = false;
     if (browser) await browser.close().catch(() => {});
-    console.log("🔓 Cerrojo liberado.");
+    console.log("🔓 Cerrojo liberado. Navegador destruido.");
   }
 }
