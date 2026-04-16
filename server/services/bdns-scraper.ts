@@ -6,7 +6,6 @@ import { bdnsGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import { checkGrantWithAI } from "./ai-evaluator";
 
-// Aplicamos el camuflaje
 puppeteer.use(StealthPlugin());
 
 function parseBDNSDate(dateStr: string) {
@@ -15,11 +14,18 @@ function parseBDNSDate(dateStr: string) {
   return new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
 }
 
-// 🔥 EL MAZO NUCLEAR: Función para aniquilar zombis sin piedad
+// 🔥 LA NUEVA LIMPIEZA PROFUNDA: Mata procesos y borra archivos basura
 function aniquilarZombis() {
-  console.log("   🔨 [SISTEMA] Ejecutando mazo nuclear contra procesos zombis...");
+  console.log("   🔨 [SISTEMA] Ejecutando limpieza militar de RAM y Disco...");
+
+  // 1. Matar procesos
   try { execSync("pkill -9 -f chromium"); } catch (e) {}
   try { execSync("pkill -9 -f chrome"); } catch (e) {}
+
+  // 2. Borrar las carpetas ocultas de caché que nos delatan
+  try { execSync("rm -rf /tmp/puppeteer*"); } catch (e) {}
+  try { execSync("rm -rf /tmp/.com.google.Chrome*"); } catch (e) {}
+  try { execSync("rm -rf /tmp/.org.chromium.Chromium*"); } catch (e) {}
 }
 
 const MODOS_BUSQUEDA = [
@@ -41,19 +47,17 @@ export async function scrapeBDNS() {
   const GLOBAL_START_TIME = Date.now();
   let shouldAutoResume = false;
 
-  console.log("🚀 Iniciando BDNS (ESTRATEGIA PROTOCOLO FÉNIX: MAZO + RESURRECCIÓN)...");
+  console.log("🚀 Iniciando BDNS (ESTRATEGIA GOLPE Y FUGA: TANDAS DE 4 MINUTOS)...");
 
-  // Limpieza inicial con el mazo
+  // Llamamos a la limpieza absoluta antes de empezar
   aniquilarZombis();
 
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
   oneMonthAgo.setHours(0, 0, 0, 0); 
-  console.log(`\n📅 Límite de antigüedad -> ${oneMonthAgo.toLocaleDateString('es-ES')}`);
 
   const todasLasEmpresas = await db.select().from(companies);
   if (todasLasEmpresas.length === 0) {
-    console.log("\n⚠️ [BDNS] No hay empresas registradas. Deteniendo scraper.\n");
     isBdnsScrapingRunning = false;
     return;
   }
@@ -81,7 +85,7 @@ export async function scrapeBDNS() {
     browser = await puppeteer.launch(puppeteerOptions as any);
 
     for (const modo of MODOS_BUSQUEDA) {
-      if (shouldAutoResume) break; // Si ya se activó el relevo, saltamos el resto
+      if (shouldAutoResume) break; 
 
       console.log(`\n======================================================`);
       console.log(`🔎 BÚSQUEDA: ${modo.nombre}`);
@@ -92,20 +96,15 @@ export async function scrapeBDNS() {
       const stopCodeLimit = stateRecord ? parseInt(stateRecord.value, 10) : 0;
       let highestCodeThisSession = stopCodeLimit;
 
-      // =========================================================================
-      // FASE 1: RECOPILACIÓN RÁPIDA DE ENLACES
-      // =========================================================================
-      console.log(`🚀 [FASE 1] Recopilando URLs de la tabla...`);
       let tablePage = await browser.newPage();
       await tablePage.setViewport({ width: 1280, height: 800 }); 
 
       try {
-        // 🔥 AÑADIDO: Try-catch a la navegación inicial para detectar el bloqueo a tiempo
         await tablePage.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
         await new Promise(resolve => setTimeout(resolve, 5000));
-      } catch (navError: any) {
-        console.log(`❌ Error al cargar la página principal (WAF o Zombi). Abortando tabla.`);
-        throw new Error("WAF_BLOCK_MAIN"); // Provoca el protocolo Fénix
+      } catch (navError) {
+        console.log(`❌ Error al cargar la página principal. Activando aborto...`);
+        throw new Error("WAF_BLOCK"); 
       }
 
       try {
@@ -155,7 +154,6 @@ export async function scrapeBDNS() {
         await new Promise(resolve => setTimeout(resolve, 8000));
 
       } catch (err) {
-        console.error(`❌ Error configurando filtros. Saltando sección.`);
         await tablePage.close().catch(()=>{});
         continue; 
       }
@@ -200,10 +198,11 @@ export async function scrapeBDNS() {
 
           if (isNaN(currentCode)) continue;
 
-          if (currentDate && currentDate < oneMonthAgo) {
-             console.log(`   🛑 Freno activado: Fecha antigua alcanzada.`);
-             keepScraping = false;
-             break; 
+          if (currentDate) {
+            if (currentDate < oneMonthAgo) {
+              keepScraping = false;
+              break; 
+            }
           }
 
           if (currentCode > stopCodeLimit) {
@@ -213,13 +212,18 @@ export async function scrapeBDNS() {
 
         if (!keepScraping) break;
 
-        const estaDeshabilitado = await tablePage.$('button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled');
-        if (!estaDeshabilitado) {
-          await tablePage.evaluate((sel) => { (document.querySelector(sel) as HTMLElement)?.click(); }, 'button.mat-paginator-navigation-next');
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          pageCounter++;
-        } else {
-          keepScraping = false; 
+        if (keepScraping) {
+          const SELECTOR_BOTON_SIGUIENTE = 'button.mat-paginator-navigation-next'; 
+          try {
+            const estaDeshabilitado = await tablePage.$('button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled');
+            if (!estaDeshabilitado) {
+              await tablePage.evaluate((sel) => { (document.querySelector(sel) as HTMLElement)?.click(); }, SELECTOR_BOTON_SIGUIENTE);
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              pageCounter++;
+            } else {
+              keepScraping = false; 
+            }
+          } catch (err) { keepScraping = false; }
         }
       } 
 
@@ -230,9 +234,6 @@ export async function scrapeBDNS() {
 
       if (enlacesAProcesar.length === 0) continue;
 
-      // =========================================================================
-      // FASE 2: EXTRACCIÓN DETALLADA CON CONTROL DE TIEMPO
-      // =========================================================================
       console.log(`🚀 [FASE 2] Iniciando extracción de detalles...`);
 
       const subvencionesAInsertar = [];
@@ -250,7 +251,6 @@ export async function scrapeBDNS() {
         console.log(`[${i+1}/${enlacesAProcesar.length}] Leyendo detalle BDNS ${conv.currentCode}...`);
 
         const pausaHumana = Math.floor(Math.random() * 30000) + 20000;
-        console.log(`   ⏳ Lector humano: leyendo durante ${(pausaHumana/1000).toFixed(1)}s...`);
         await new Promise(resolve => setTimeout(resolve, pausaHumana));
 
         let detallesExtraidos: any = null;
@@ -293,6 +293,7 @@ export async function scrapeBDNS() {
           });
 
           extraccionExitosa = true; 
+          await new Promise(r => setTimeout(r, Math.random() * 2000 + 2000));
 
         } catch (err: any) {
            console.error(`   ❌ Cortafuegos interceptó (Timeout). Activando resurrección.`);
@@ -347,9 +348,8 @@ export async function scrapeBDNS() {
     }
 
   } catch (error: any) {
-    // 🔥 CUALQUIER error de Timeout o bloqueo activa el letargo y la resurrección
     if (error.message.includes("WAF_BLOCK") || error.message.includes("Timeout")) {
-       console.log("\n🛑 [SISTEMA] Cortafuegos detectado o Timeout. Abortando misión.");
+       console.log("\n🛑 [SISTEMA] Cortafuegos detectado. Abortando misión.");
        shouldAutoResume = true;
     } else {
        console.error("💀 Error CRÍTICO:", error);
@@ -357,24 +357,23 @@ export async function scrapeBDNS() {
   } finally {
     isBdnsScrapingRunning = false;
 
-    // 1. Intentamos el cierre amable
     if (browser) await browser.close().catch(() => {});
 
-    // 2. 🔥 EL MAZO NUCLEAR SIEMPRE, PASE LO QUE PASE
+    // 🔥 EL MAZO NUCLEAR SIEMPRE LLEVA LA LIMPIEZA DE DISCO AHORA
     aniquilarZombis();
 
-    console.log("🔓 Cerrojo liberado. Sistema desinfectado de zombis.");
+    console.log("🔓 Cerrojo liberado. Sistema desinfectado de zombis y basura temporal.");
 
-    // 3. EL AUTO-RELEVO
     if (shouldAutoResume) {
        console.log("===============================================================");
-       console.log("💤 Entrando en letargo profundo de 3 MINUTOS para evadir WAF...");
+       // 🔥 EXTENDEMOS LA PAUSA A 6 MINUTOS. 3 min a veces no es suficiente para que el firewall se olvide de la IP.
+       console.log("💤 Entrando en letargo profundo de 6 MINUTOS para que el firewall olvide nuestra IP...");
        console.log("===============================================================");
 
        setTimeout(() => {
            console.log("\n⏰ ¡Letargo terminado! El Fénix resurge...");
            scrapeBDNS();
-       }, 180000); // 3 Minutos
+       }, 360000); // 360.000 ms = 6 Minutos
     }
   }
 }
