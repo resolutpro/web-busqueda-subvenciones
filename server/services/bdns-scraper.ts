@@ -1,3 +1,4 @@
+// Importamos puppeteer-extra y el plugin stealth
 import puppeteer from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { execSync } from "child_process";
@@ -6,7 +7,7 @@ import { bdnsGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import { checkGrantWithAI } from "./ai-evaluator";
 
-// Aplicamos camuflaje avanzado
+// Aplicamos el camuflaje
 puppeteer.use(StealthPlugin());
 
 function parseBDNSDate(dateStr: string) {
@@ -22,24 +23,18 @@ const MODOS_BUSQUEDA = [
   { id: 'O', nombre: 'Otros órganos', seleccionarEspecificos: 'ALL' }
 ];
 
-const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0"
-];
-
 let isBdnsScrapingRunning = false;
 
 export async function scrapeBDNS() {
   if (isBdnsScrapingRunning) {
-    console.log("⚠️ [BDNS] Proceso bloqueado: Ya hay un scraping en curso.");
+    console.log("⚠️ [BDNS] Intento bloqueado: Ya hay un proceso ejecutándose.");
     return;
   }
 
   isBdnsScrapingRunning = true;
-  console.log("🚀 Iniciando BDNS (ESTRATEGIA: MICRO-LOTES CON DESCANSO)...");
+  console.log("🚀 Iniciando scraping BDNS (MODO STEALTH + TORTUGA + REINICIO DURO)...");
 
-  console.log("🧹 Limpiando RAM...");
+  console.log("🧹 Limpiando RAM del servidor...");
   try { execSync("pkill -f chromium"); } catch (e) {}
   try { execSync("pkill -f chrome"); } catch (e) {}
 
@@ -48,37 +43,36 @@ export async function scrapeBDNS() {
 
   const todasLasEmpresas = await db.select().from(companies);
   if (todasLasEmpresas.length === 0) {
+    console.log("\n⚠️ [BDNS] No hay empresas registradas. Deteniendo scraper.\n");
     isBdnsScrapingRunning = false;
     return;
   }
 
   const arrayEmpresasIA = todasLasEmpresas.map(e => ({
-    id: e.id, name: e.name, description: `Tamaño: ${e.size}. Actividad: ${e.description}`
+    id: e.id, name: e.name, description: `Tamaño: ${e.size || 'No definido'}. Actividad: ${e.description}`
   }));
 
+  let browser: any = null;
   let chromiumPath = "";
   try { chromiumPath = execSync("which chromium").toString().trim(); } 
   catch (e) { chromiumPath = "chromium"; }
 
-  // ⚠️ ELIMINADO EL '--single-process' QUE CAUSABA EL CUELGUE DEL PROTOCOLO
-  const browserArgs = [
-    '--no-sandbox', 
-    '--disable-setuid-sandbox', 
-    '--disable-dev-shm-usage', 
-    '--disable-gpu',
-    '--no-zygote',
-    '--disable-features=site-per-process'
-  ];
-
-  // AÑADIDO: protocolTimeout para que Replit no se ahogue
-  const puppeteerOptions = { 
-    headless: true, 
-    executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium', 
-    args: browserArgs,
-    protocolTimeout: 240000 // 4 minutos de tolerancia para que Chrome hable con Node
+  // Extraemos las opciones para poder relanzar el navegador más adelante
+  const puppeteerOptions = {
+    headless: true,
+    executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
+    args: [
+      '--no-sandbox', 
+      '--disable-setuid-sandbox', 
+      '--disable-dev-shm-usage', 
+      '--disable-gpu',
+      '--js-flags="--max-old-space-size=256"'
+    ]
   };
 
   try {
+    browser = await puppeteer.launch(puppeteerOptions as any);
+
     for (const modo of MODOS_BUSQUEDA) {
       console.log(`\n======================================================`);
       console.log(`🔎 BÚSQUEDA: ${modo.nombre}`);
@@ -90,10 +84,11 @@ export async function scrapeBDNS() {
       let highestCodeThisSession = stopCodeLimit;
 
       // =========================================================================
-      // FASE 1: RECOPILAR ENLACES (Sin leer detalles)
+      // FASE 1: RECOPILACIÓN RÁPIDA DE ENLACES
       // =========================================================================
-      let tableBrowser = await puppeteer.launch(puppeteerOptions as any);
-      let tablePage = await tableBrowser.newPage();
+      console.log(`🚀 [FASE 1] Recopilando URLs de la tabla...`);
+      let tablePage = await browser.newPage();
+      await tablePage.setViewport({ width: 1280, height: 800 }); 
 
       await tablePage.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
       await new Promise(resolve => setTimeout(resolve, 5000));
@@ -122,10 +117,12 @@ export async function scrapeBDNS() {
               const nodo = nodos[i];
               const labelElement = nodo.querySelector('.mat-checkbox-label');
               if (!labelElement) continue;
+
               const textoCheckbox = labelElement.textContent?.trim().toUpperCase() || "";
               const checkbox = nodo.querySelector('mat-checkbox');
               const isChecked = checkbox?.classList.contains('mat-checkbox-checked');
               let deberiaEstarMarcado = (elementosDeseados === 'ALL') || (Array.isArray(elementosDeseados) && elementosDeseados.includes(textoCheckbox));
+
               if (isChecked !== deberiaEstarMarcado) {
                 const labelClickable = nodo.querySelector('label.mat-checkbox-layout');
                 if (labelClickable) (labelClickable as HTMLElement).click();
@@ -141,32 +138,43 @@ export async function scrapeBDNS() {
           if (btnFiltrar) (btnFiltrar as HTMLElement).click();
         });
         await new Promise(resolve => setTimeout(resolve, 8000));
+
       } catch (err) {
-        await tableBrowser.close().catch(()=>{});
+        console.error(`❌ Error configurando filtros. Saltando sección.`);
+        await tablePage.close().catch(()=>{});
         continue; 
       }
 
       let keepScraping = true;
-      let enlacesAProcesar = [];
+      let pageCounter = 1;
+      const enlacesAProcesar = [];
 
       while (keepScraping) {
+        console.log(`   📄 Leyendo tabla página ${pageCounter}...`);
+
         const convocatoriasPagina = await tablePage.evaluate(() => {
           const filas = Array.from(document.querySelectorAll('table tbody tr'));
           return filas.map(fila => {
             const columnas = fila.querySelectorAll('td');
             if (columnas.length < 3 || columnas[0].innerText.includes("Cargando")) return null; 
-            const etiquetaEnlace = columnas[5].querySelector('a');
+            const celdaCodigo = columnas[0];
+            const celdaFechaRegistro = columnas[4]; 
+            const celdaTitulo = columnas[5];
+            const etiquetaEnlace = celdaTitulo.querySelector('a');
+
             return {
-              codigoBDNS: columnas[0].innerText.trim(),
-              fechaRegistro: columnas[4].innerText.trim(),
-              titulo: columnas[5].innerText.trim(),
+              codigoBDNS: celdaCodigo.innerText.trim(),
+              fechaRegistro: celdaFechaRegistro.innerText.trim(),
+              titulo: celdaTitulo.innerText.trim(),
               organoConvocante: columnas[3].innerText.trim(),
               urlDetalle: etiquetaEnlace ? etiquetaEnlace.href : null
             };
           }).filter(item => item !== null);
         });
 
-        if (convocatoriasPagina.length === 0) break;
+        if (convocatoriasPagina.length === 0) {
+          keepScraping = false; break;
+        }
 
         for (const convocatoria of convocatoriasPagina) {
           if (!convocatoria || !convocatoria.urlDetalle) continue;
@@ -177,63 +185,86 @@ export async function scrapeBDNS() {
 
           if (isNaN(currentCode)) continue;
           if (currentDate && currentDate < oneMonthAgo) {
-            keepScraping = false; break; 
+            keepScraping = false;
+            break; 
           }
+
           if (currentCode > stopCodeLimit) {
              enlacesAProcesar.push({ ...convocatoria, currentCode, codigoLimpio, currentDate });
           }
         }
 
         if (keepScraping) {
+          const SELECTOR_BOTON_SIGUIENTE = 'button.mat-paginator-navigation-next'; 
           try {
             const estaDeshabilitado = await tablePage.$('button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled');
             if (!estaDeshabilitado) {
-              await tablePage.evaluate(() => { (document.querySelector('button.mat-paginator-navigation-next') as HTMLElement)?.click(); });
-              await new Promise(resolve => setTimeout(resolve, 4000));
-            } else { keepScraping = false; }
+              await tablePage.evaluate((sel) => { (document.querySelector(sel) as HTMLElement)?.click(); }, SELECTOR_BOTON_SIGUIENTE);
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              pageCounter++;
+            } else {
+              keepScraping = false; 
+            }
           } catch (err) { keepScraping = false; }
         }
       } 
 
-      await tableBrowser.close().catch(()=>{}); 
+      await tablePage.close().catch(()=>{});
+      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces.\n`);
 
-      if (enlacesAProcesar.length === 0) {
-        console.log(`✅ No hay subvenciones nuevas en esta sección.`);
-        continue;
-      }
-
-      enlacesAProcesar.reverse();
-      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces. Procesando del más antiguo al más nuevo...`);
+      if (enlacesAProcesar.length === 0) continue;
 
       // =========================================================================
-      // FASE 2: MICRO-LOTES CON DESCANSO 
+      // FASE 2: EXTRACCIÓN DETALLADA (CON REINICIO DURO DE NAVEGADOR)
       // =========================================================================
-      const TAMANO_LOTE = 15; 
+      console.log(`🚀 [FASE 2] Iniciando extracción de detalles (Lenta y segura)...`);
 
-      for (let i = 0; i < enlacesAProcesar.length; i += TAMANO_LOTE) {
-        const lote = enlacesAProcesar.slice(i, i + TAMANO_LOTE);
-        console.log(`\n📦 --- Iniciando LOTE de ${lote.length} subvenciones ---`);
+      const subvencionesAInsertar = [];
+      let updatedHighestCode = highestCodeThisSession;
 
-        let batchBrowser = await puppeteer.launch(puppeteerOptions as any);
-        const subvencionesAInsertar = [];
+      for (let i = 0; i < enlacesAProcesar.length; i++) {
+        const conv = enlacesAProcesar[i];
+        console.log(`[${i+1}/${enlacesAProcesar.length}] Leyendo detalle BDNS ${conv.currentCode}...`);
 
-        for (const conv of lote) {
-          console.log(`   📄 Leyendo BDNS ${conv.currentCode}...`);
-          let detallesExtraidos: any = null;
+        const pausaHumana = Math.floor(Math.random() * 10000) + 15000;
+        console.log(`   ⏳ Pausa Tortuga de ${(pausaHumana/1000).toFixed(1)}s...`);
+        await new Promise(resolve => setTimeout(resolve, pausaHumana));
+
+        let detallesExtraidos: any = null;
+        let extraccionExitosa = false;
+        let intentos = 0;
+
+        while (!extraccionExitosa && intentos < 3) {
+          intentos++;
+          let context: any = null;
+          let detailPage: any = null;
 
           try {
-            const detailPage = await batchBrowser.newPage();
-            const randomUserAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
-            await detailPage.setUserAgent(randomUserAgent);
+            if (intentos > 1) {
+              // 🚨 ESTA ES LA CLAVE: MATAMOS CHROME ANTES DE DORMIR
+              console.log(`   🚨 [CORTAFUEGOS DETECTADO] Reintento ${intentos}/3. Apagando Chrome y durmiendo 5 min...`);
+              if (browser) await browser.close().catch(()=>{});
+
+              await new Promise(resolve => setTimeout(resolve, 300000)); // 5 minutos
+
+              console.log(`   🔄 Despertando y arrancando Chrome limpio...`);
+              browser = await puppeteer.launch(puppeteerOptions as any);
+            }
+
+            context = await browser.createBrowserContext();
+            detailPage = await context.newPage();
 
             await detailPage.setRequestInterception(true);
             detailPage.on('request', (req: any) => {
-              if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) req.abort().catch(()=>{}); 
-              else req.continue().catch(()=>{});
+              if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+                req.abort().catch(() => {}); 
+              } else {
+                req.continue().catch(() => {});
+              }
             });
 
             await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await detailPage.waitForSelector('.titulo-campo', { timeout: 30000 });
 
             detallesExtraidos = await detailPage.evaluate(() => {
               const res: Record<string, string> = {};
@@ -252,74 +283,82 @@ export async function scrapeBDNS() {
               });
               return res;
             });
-            await detailPage.close().catch(()=>{});
 
-            // Pausa humana 
-            await new Promise(r => setTimeout(r, Math.random() * 4000 + 4000));
+            extraccionExitosa = true; 
 
           } catch (err: any) {
-             console.error(`   ❌ Error al leer web: ${err.message}`);
+             console.error(`   ❌ Error web: ${err.message}`);
+          } finally {
+            if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(()=>{});
+            if (context) await context.close().catch(()=>{});
           }
-
-          if (detallesExtraidos && Object.keys(detallesExtraidos).length > 0) {
-             const infoCompleta = { ...conv, codigoBDNS: conv.codigoLimpio, ...detallesExtraidos };
-
-             try {
-               console.log(`   🤖 [MODO PRUEBA] IA desactivada. Simulando rechazo...`);
-               let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
-               let algunaEmpresaCuadra = false;
-
-               /* === CÓDIGO IA (DESCOMENTAR CUANDO ESTÉ LISTO) ===
-               let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
-               iaAnalisisMasivo.matches = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
-               for (const match of iaAnalisisMasivo.matches) {
-                 if (match.cuadra) { algunaEmpresaCuadra = true; console.log(`   ✅ CUADRA para: ${match.companyName}`); }
-               }
-               ============================================================= */
-
-               if (algunaEmpresaCuadra) {
-                 subvencionesAInsertar.push({
-                   codigoBDNS: conv.codigoLimpio, titulo: conv.titulo, organoConvocante: conv.organoConvocante,
-                   fechaRegistro: conv.currentDate, urlDetalle: conv.urlDetalle,
-                   detallesExtraidos: detallesExtraidos, iaAnalisis: iaAnalisisMasivo
-                 });
-               }
-             } catch (iaErr: any) {}
-
-             if (conv.currentCode > highestCodeThisSession) {
-                highestCodeThisSession = conv.currentCode;
-                try {
-                  await db.insert(scrapingState).values({ key: stateKey, value: highestCodeThisSession.toString() })
-                    .onConflictDoUpdate({ target: scrapingState.key, set: { value: highestCodeThisSession.toString(), updatedAt: new Date() } });
-                } catch(e) {}
-             }
-          }
-        } 
-
-        if (subvencionesAInsertar.length > 0) {
-          try {
-            await db.insert(bdnsGrants).values(subvencionesAInsertar);
-            console.log(`   💾 Guardadas ${subvencionesAInsertar.length} en Base de Datos.`);
-          } catch (dbErr) {}
         }
 
-        await batchBrowser.close().catch(()=>{});
+        if (extraccionExitosa && detallesExtraidos) {
+           const infoCompleta = { ...conv, codigoBDNS: conv.codigoLimpio, ...detallesExtraidos };
 
-        if (i + TAMANO_LOTE < enlacesAProcesar.length) {
-           console.log(`\n☕ Lote terminado. Tomando un descanso de 2 MINUTOS para limpiar IP y RAM...`);
-           await new Promise(resolve => setTimeout(resolve, 120000)); 
+           try {
+             console.log(`   🤖 [MODO PRUEBA] IA desactivada. Simulando rechazo automático...`);
+             let algunaEmpresaCuadra = false;
+             let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
+
+             /* === DESCOMENTAR PARA ACTIVAR IA REAL ===
+             let algunaEmpresaCuadra = false;
+             let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
+             const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
+             iaAnalisisMasivo.matches = matchesArray;
+             for (const match of matchesArray) {
+               if (match.cuadra) {
+                 algunaEmpresaCuadra = true;
+                 console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
+               }
+             }
+             ============================================================= */
+
+             if (algunaEmpresaCuadra) {
+               subvencionesAInsertar.push({
+                 codigoBDNS: conv.codigoLimpio, 
+                 titulo: conv.titulo,
+                 organoConvocante: conv.organoConvocante,
+                 fechaRegistro: conv.currentDate,
+                 urlDetalle: conv.urlDetalle,
+                 detallesExtraidos: detallesExtraidos, 
+                 iaAnalisis: iaAnalisisMasivo
+               });
+               console.log(`   ⏳ Añadida a cola.`);
+             }
+           } catch (iaErr: any) {}
+
+           if (conv.currentCode > updatedHighestCode) {
+             updatedHighestCode = conv.currentCode;
+             try {
+                await db.insert(scrapingState).values({ key: stateKey, value: updatedHighestCode.toString() })
+                  .onConflictDoUpdate({ target: scrapingState.key, set: { value: updatedHighestCode.toString(), updatedAt: new Date() } });
+             } catch(e) {}
+           }
+        } else {
+           console.log(`   ⏭️ Saltado tras fallar definitivamente.`);
         }
       } 
+
+      // GUARDADO EN BD
+      if (subvencionesAInsertar.length > 0) {
+        try {
+          console.log(`\n💾 Insertando ${subvencionesAInsertar.length} subvenciones en BD...`);
+          await db.insert(bdnsGrants).values(subvencionesAInsertar);
+        } catch (dbErr) { console.error("❌ Error guardando en BD:", dbErr); }
+      }
     } 
 
-    console.log(`\n🎉 Scraping BDNS completado exitosamente.`);
+    console.log(`\n🎉 Scraping BDNS completado.`);
     await db.insert(scrapingState).values({ key: "last_bdns_sync", value: new Date().toISOString() })
       .onConflictDoUpdate({ target: scrapingState.key, set: { value: new Date().toISOString(), updatedAt: new Date() }});
 
   } catch (error) {
-    console.error("💀 Error CRÍTICO (Nivel Superior):", error);
+    console.error("💀 Error CRÍTICO:", error);
   } finally {
     isBdnsScrapingRunning = false;
-    console.log("🔓 Cerrojo liberado. Sistema listo para próxima ejecución.");
+    if (browser) await browser.close().catch(() => {});
+    console.log("🔓 Cerrojo liberado.");
   }
 }
