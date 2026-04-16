@@ -9,6 +9,11 @@ import { fetchTEDGrants } from "./services/ted-scraper";
 import cron from "node-cron";
 import { fetchDailyBOE } from "./services/boe-scraper";
 
+// 👇 NUEVOS IMPORTS PARA EL AUTO-RELEVO KAMIKAZE 👇
+import { db } from "./db";
+import { scrapingState } from "../shared/schema";
+import { eq } from "drizzle-orm";
+
 const app = express();
 const httpServer = createServer(app);
 
@@ -112,9 +117,31 @@ app.use((req, res, next) => {
 
     console.log("[STARTUP] 4. Intentando exponer el puerto...");
     const PORT = process.env.PORT || 5000;
+
+    // 👇 AQUÍ ARRANCA EL SERVIDOR Y SE EJECUTA NUESTRA COMPROBACIÓN 👇
     httpServer.listen(Number(PORT), "0.0.0.0", () => {
       console.log(`[STARTUP] ✅ ÉXITO: Servidor escuchando en el puerto ${PORT}`);
       log(`serving on port ${PORT}`);
+
+      // COMPROBACIÓN KAMIKAZE: A los 5 segundos de arrancar, miramos la BD
+      setTimeout(async () => {
+        try {
+          const resumeState = await db.query.scrapingState.findFirst({ 
+            where: eq(scrapingState.key, "kamikaze_resume") 
+          });
+
+          if (resumeState?.value === "true") {
+            console.log("\n🔄 [STARTUP] ¡Nota Kamikaze detectada! El servidor se reinició para evadir el cortafuegos.");
+            console.log("🔄 Retomando el scraping BDNS en 10 segundos para dejar que el sistema respire...\n");
+
+            // Esperamos 10 segundos extra antes de arrancar Chrome para no saturar el servidor recién encendido
+            setTimeout(() => scrapeBDNS(), 10000);
+          }
+        } catch (e) {
+          console.error("❌ Error comprobando estado de Kamikaze:", e);
+        }
+      }, 5000);
+
     });
 
     httpServer.on("error", (err) => {
