@@ -15,14 +15,12 @@ function parseBDNSDate(dateStr: string) {
   return new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
 }
 
-// Limpieza militar
+// Limpieza básica de procesos en caso de que queden zombis al arrancar
 function aniquilarZombis() {
-  console.log("   🔨 [SISTEMA] Ejecutando limpieza militar de RAM y Disco...");
+  console.log("   🔨 [SISTEMA] Ejecutando limpieza inicial de RAM...");
   try { execSync("pkill -9 -f chromium"); } catch (e) {}
   try { execSync("pkill -9 -f chrome"); } catch (e) {}
   try { execSync("rm -rf /tmp/puppeteer*"); } catch (e) {}
-  try { execSync("rm -rf /tmp/.com.google.Chrome*"); } catch (e) {}
-  try { execSync("rm -rf /tmp/.org.chromium.Chromium*"); } catch (e) {}
 }
 
 const MODOS_BUSQUEDA = [
@@ -42,9 +40,9 @@ export async function scrapeBDNS() {
 
   isBdnsScrapingRunning = true;
   const GLOBAL_START_TIME = Date.now();
-  let shouldAutoResume = false;
+  let shouldKamikaze = false; // <--- LA NUEVA BANDERA DEL REINICIO
 
-  console.log("🚀 Iniciando BDNS (GOLPE Y FUGA + CARGA ULTRA-RÁPIDA)...");
+  console.log("🚀 Iniciando BDNS (ESTRATEGIA KAMIKAZE: REINICIO DE SERVIDOR AL DETECTAR BLOQUEO)...");
 
   aniquilarZombis();
 
@@ -81,7 +79,7 @@ export async function scrapeBDNS() {
     browser = await puppeteer.launch(puppeteerOptions as any);
 
     for (const modo of MODOS_BUSQUEDA) {
-      if (shouldAutoResume) break; 
+      if (shouldKamikaze) break; 
 
       console.log(`\n======================================================`);
       console.log(`🔎 BÚSQUEDA: ${modo.nombre}`);
@@ -95,7 +93,6 @@ export async function scrapeBDNS() {
       let tablePage = await browser.newPage();
       await tablePage.setViewport({ width: 1280, height: 800 }); 
 
-      // 🔥 CORRECCIÓN: Bloqueamos imágenes y recursos pesados en la PÁGINA PRINCIPAL para que no colapse Replit
       await tablePage.setRequestInterception(true);
       tablePage.on('request', (req: any) => {
         if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
@@ -106,11 +103,10 @@ export async function scrapeBDNS() {
       });
 
       try {
-        // 🔥 CORRECCIÓN CLAVE: 'domcontentloaded' en lugar de 'networkidle2'. ¡Carga instantánea!
         await tablePage.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "domcontentloaded", timeout: 60000 });
         await new Promise(resolve => setTimeout(resolve, 5000));
       } catch (navError) {
-        console.log(`❌ Error al cargar la página principal (Timeout/WAF). Activando aborto...`);
+        console.log(`❌ Error al cargar la página principal. WAF detectado al instante.`);
         throw new Error("WAF_BLOCK"); 
       }
 
@@ -249,16 +245,16 @@ export async function scrapeBDNS() {
 
         const tiempoTranscurrido = Date.now() - GLOBAL_START_TIME;
         if (tiempoTranscurrido > 240000) {
-           console.log(`\n⏰ ¡TIEMPO LÍMITE ALCANZADO! (4 minutos). Nos retiramos.`);
-           shouldAutoResume = true; 
+           console.log(`\n⏰ ¡LÍMITE DE 4 MINUTOS! Activando protocolo Kamikaze.`);
+           shouldKamikaze = true; 
            break; 
         }
 
         const conv = enlacesAProcesar[i];
         console.log(`[${i+1}/${enlacesAProcesar.length}] Leyendo detalle BDNS ${conv.currentCode}...`);
 
-        //const pausaHumana = Math.floor(Math.random() * 30000) + 20000;
-        //await new Promise(resolve => setTimeout(resolve, pausaHumana));
+        const pausaHumana = Math.floor(Math.random() * 30000) + 20000;
+        await new Promise(resolve => setTimeout(resolve, pausaHumana));
 
         let detallesExtraidos: any = null;
         let extraccionExitosa = false;
@@ -303,7 +299,7 @@ export async function scrapeBDNS() {
           await new Promise(r => setTimeout(r, Math.random() * 2000 + 2000));
 
         } catch (err: any) {
-           console.error(`   ❌ Cortafuegos interceptó (Timeout). Activando resurrección.`);
+           console.error(`   ❌ Cortafuegos interceptó (Timeout). Activando Kamikaze.`);
            throw new Error("WAF_BLOCK");
         } finally {
           if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(()=>{});
@@ -317,6 +313,18 @@ export async function scrapeBDNS() {
              console.log(`   🤖 [MODO PRUEBA] IA desactivada. Simulando rechazo...`);
              let algunaEmpresaCuadra = false;
              let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
+
+             /* === DESCOMENTAR PARA ACTIVAR IA REAL ===
+             let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
+             const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
+             iaAnalisisMasivo.matches = matchesArray;
+             for (const match of matchesArray) {
+               if (match.cuadra) {
+                 algunaEmpresaCuadra = true;
+                 console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
+               }
+             }
+             ============================================================= */
 
              if (algunaEmpresaCuadra) {
                subvencionesAInsertar.push({
@@ -348,7 +356,7 @@ export async function scrapeBDNS() {
       }
     } 
 
-    if (!shouldAutoResume) {
+    if (!shouldKamikaze) {
       console.log(`\n🎉 Scraping BDNS completado al 100%.`);
       await db.insert(scrapingState).values({ key: "last_bdns_sync", value: new Date().toISOString() })
         .onConflictDoUpdate({ target: scrapingState.key, set: { value: new Date().toISOString(), updatedAt: new Date() }});
@@ -356,8 +364,8 @@ export async function scrapeBDNS() {
 
   } catch (error: any) {
     if (error.message.includes("WAF_BLOCK") || error.message.includes("Timeout")) {
-       console.log("\n🛑 [SISTEMA] Cortafuegos detectado. Abortando misión.");
-       shouldAutoResume = true;
+       console.log("\n🛑 [SISTEMA] Cortafuegos detectado. Nos inmolamos para conseguir una nueva IP.");
+       shouldKamikaze = true;
     } else {
        console.error("💀 Error CRÍTICO:", error);
     }
@@ -365,19 +373,23 @@ export async function scrapeBDNS() {
     isBdnsScrapingRunning = false;
 
     if (browser) await browser.close().catch(() => {});
-    aniquilarZombis();
 
-    console.log("🔓 Cerrojo liberado. Sistema desinfectado de zombis y basura temporal.");
-
-    if (shouldAutoResume) {
+    if (shouldKamikaze) {
        console.log("===============================================================");
-       console.log("💤 Entrando en letargo profundo de 10 MINUTOS para que el firewall olvide nuestra IP...");
+       console.log("💥 ESTRATEGIA KAMIKAZE INICIADA 💥");
        console.log("===============================================================");
 
-       setTimeout(() => {
-           console.log("\n⏰ ¡Letargo terminado! El Fénix resurge...");
-           scrapeBDNS();
-       }, 600000); // 600.000 ms = 10 Minutos
+       // 👇 1. DEJAMOS LA NOTA EN LA BASE DE DATOS ANTES DE MORIR 👇
+       await db.insert(scrapingState).values({ key: "kamikaze_resume", value: "true" })
+         .onConflictDoUpdate({ target: scrapingState.key, set: { value: "true", updatedAt: new Date() } });
+
+       process.exit(1); 
+    } else {
+       // 👇 2. SI HA TERMINADO BIEN, BORRAMOS LA NOTA 👇
+       await db.insert(scrapingState).values({ key: "kamikaze_resume", value: "false" })
+         .onConflictDoUpdate({ target: scrapingState.key, set: { value: "false", updatedAt: new Date() } });
+
+       console.log("🔓 Cerrojo liberado. Sistema en reposo.");
     }
   }
 }
