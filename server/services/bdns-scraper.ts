@@ -6,7 +6,6 @@ import { bdnsGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import { checkGrantWithAI } from "./ai-evaluator";
 
-// Aplicamos el camuflaje
 puppeteer.use(StealthPlugin());
 
 function parseBDNSDate(dateStr: string) {
@@ -26,12 +25,12 @@ let isBdnsScrapingRunning = false;
 
 export async function scrapeBDNS() {
   if (isBdnsScrapingRunning) {
-    console.log("⚠️ [BDNS] Intento bloqueado: Ya hay un proceso ejecutándose.");
+    console.log("⚠️ [BDNS] Proceso bloqueado: Ya hay un scraping en curso.");
     return;
   }
 
   isBdnsScrapingRunning = true;
-  console.log("🚀 Iniciando scraping BDNS (STEALTH + TORTUGA + ANTI-ZOMBIES)...");
+  console.log("🚀 Iniciando scraping BDNS (TÉCNICA FANTASMA: FETCH + INYECCIÓN OFFLINE)...");
 
   console.log("🧹 Limpiando RAM del servidor...");
   try { execSync("pkill -f chromium"); } catch (e) {}
@@ -40,7 +39,7 @@ export async function scrapeBDNS() {
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
   oneMonthAgo.setHours(0, 0, 0, 0); 
-  console.log(`\n📅 ATENCIÓN: Límite de antigüedad -> ${oneMonthAgo.toLocaleDateString('es-ES')}`);
+  console.log(`\n📅 Límite de antigüedad -> ${oneMonthAgo.toLocaleDateString('es-ES')}`);
 
   const todasLasEmpresas = await db.select().from(companies);
   if (todasLasEmpresas.length === 0) {
@@ -61,14 +60,11 @@ export async function scrapeBDNS() {
   const puppeteerOptions = {
     headless: true,
     executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
-    timeout: 120000, // 🔥 MAGIA 1: Le damos a Replit hasta 2 minutos para encender Chrome sin agobiarse
-    protocolTimeout: 240000,
     args: [
       '--no-sandbox', 
       '--disable-setuid-sandbox', 
       '--disable-dev-shm-usage', 
-      '--disable-gpu',
-      '--js-flags="--max-old-space-size=256"'
+      '--disable-gpu'
     ]
   };
 
@@ -142,7 +138,6 @@ export async function scrapeBDNS() {
         await new Promise(resolve => setTimeout(resolve, 8000));
 
       } catch (err) {
-        console.error(`❌ Error configurando filtros. Saltando sección.`);
         await tablePage.close().catch(()=>{});
         continue; 
       }
@@ -188,9 +183,8 @@ export async function scrapeBDNS() {
           if (isNaN(currentCode)) continue;
 
           if (currentDate) {
-            const esAntigua = currentDate < oneMonthAgo;
-            if (esAntigua) {
-              console.log(`   🛑 Freno activado: Hemos llegado a una fecha antigua (${currentDate.toLocaleDateString('es-ES')}).`);
+            if (currentDate < oneMonthAgo) {
+              console.log(`   🛑 Freno activado: Fecha antigua alcanzada.`);
               keepScraping = false;
               break; 
             }
@@ -219,69 +213,64 @@ export async function scrapeBDNS() {
       } 
 
       await tablePage.close().catch(()=>{});
-      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces válidos del último mes.\n`);
+      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces válidos.\n`);
 
       if (enlacesAProcesar.length === 0) continue;
 
       // =========================================================================
-      // FASE 2: EXTRACCIÓN DETALLADA (CON REINICIO DURO DE NAVEGADOR)
+      // FASE 2: EXTRACCIÓN FANTASMA (HTTP FETCH NATIVO + PARSEO OFFLINE)
       // =========================================================================
-      console.log(`🚀 [FASE 2] Iniciando extracción de detalles (Lenta y segura)...`);
+      console.log(`🚀 [FASE 2] Iniciando extracción fantasma (Inmune a Timeouts de Puppeteer)...`);
 
       const subvencionesAInsertar = [];
       let updatedHighestCode = highestCodeThisSession;
 
+      // Creamos UNA SOLA PESTAÑA ciega y sorda
+      let detailPage = await browser.newPage();
+      await detailPage.setRequestInterception(true);
+      // 🔥 LA MAGIA: Bloqueamos absolutamente TODO el tráfico de internet de esta pestaña
+      detailPage.on('request', (req: any) => {
+        req.abort().catch(() => {});
+      });
+
       for (let i = 0; i < enlacesAProcesar.length; i++) {
         const conv = enlacesAProcesar[i];
-        console.log(`[${i+1}/${enlacesAProcesar.length}] Leyendo detalle BDNS ${conv.currentCode}...`);
+        console.log(`[${i+1}/${enlacesAProcesar.length}] Descargando BDNS ${conv.currentCode} silenciosamente...`);
 
-        const pausaHumana = Math.floor(Math.random() * 10000) + 15000;
-        console.log(`   ⏳ Pausa Tortuga de ${(pausaHumana/1000).toFixed(1)}s...`);
-        await new Promise(resolve => setTimeout(resolve, pausaHumana));
+        // Pausa ligera entre 3 y 6 segundos para no hacer spam al servidor
+        const pausa = Math.floor(Math.random() * 3000) + 3000;
+        await new Promise(resolve => setTimeout(resolve, pausa));
 
         let detallesExtraidos: any = null;
-        let extraccionExitosa = false;
-        let intentos = 0;
+        let htmlContent = "";
+        let fetchSuccess = false;
 
-        while (!extraccionExitosa && intentos < 3) {
-          intentos++;
-          let context: any = null;
-          let detailPage: any = null;
-
-          try {
-            if (intentos > 1) {
-              console.log(`   🚨 [CORTAFUEGOS DETECTADO] Reintento ${intentos}/3. Apagando Chrome y durmiendo 5 min...`);
-              if (browser) {
-                await browser.close().catch(()=>{});
-                browser = null; // Matamos la referencia
-              }
-
-              await new Promise(resolve => setTimeout(resolve, 300000)); // 5 minutos
-
-              // 🔥 MAGIA 2: Matamos zombis ANTES de intentar arrancar de nuevo
-              console.log(`   🧹 Aniquilando procesos zombis de RAM...`);
-              try { execSync("pkill -f chromium"); } catch (e) {}
-              try { execSync("pkill -f chrome"); } catch (e) {}
-              await new Promise(resolve => setTimeout(resolve, 2000)); // Dejamos que el SO respire
-
-              console.log(`   🔄 Despertando y arrancando Chrome limpio...`);
-              browser = await puppeteer.launch(puppeteerOptions as any);
+        // 1. DESCARGAMOS EL HTML USANDO NODE.JS NATIVO (NO PUPPETEER)
+        try {
+          const response = await fetch(conv.urlDetalle, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+              "Accept-Language": "es-ES,es;q=0.9"
             }
+          });
 
-            context = await browser.createBrowserContext();
-            detailPage = await context.newPage();
+          if (response.ok) {
+            htmlContent = await response.text();
+            fetchSuccess = true;
+          } else {
+            console.log(`   🚨 El servidor devolvió estado ${response.status}. Descansando 60s por seguridad...`);
+            await new Promise(resolve => setTimeout(resolve, 60000));
+          }
+        } catch (e: any) {
+          console.error(`   ❌ Error de Fetch HTTP: ${e.message}`);
+        }
 
-            await detailPage.setRequestInterception(true);
-            detailPage.on('request', (req: any) => {
-              if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
-                req.abort().catch(() => {}); 
-              } else {
-                req.continue().catch(() => {});
-              }
-            });
-
-            await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
-            await detailPage.waitForSelector('.titulo-campo', { timeout: 30000 });
+        // 2. SI TENEMOS EL HTML, SE LO INYECTAMOS A LA PESTAÑA OFFLINE PARA PARSEARLO
+        if (fetchSuccess && htmlContent.includes("titulo-campo")) {
+          try {
+            // Puppeteer procesa el string localmente, SIN NAVEGAR. 
+            await detailPage.setContent(htmlContent, { waitUntil: "domcontentloaded" });
 
             detallesExtraidos = await detailPage.evaluate(() => {
               const res: Record<string, string> = {};
@@ -301,17 +290,15 @@ export async function scrapeBDNS() {
               return res;
             });
 
-            extraccionExitosa = true; 
+            // Vaciamos la memoria de la pestaña inyectando un string vacío
+            await detailPage.setContent("<html></html>"); 
 
-          } catch (err: any) {
-             console.error(`   ❌ Error web: ${err.message}`);
-          } finally {
-            if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(()=>{});
-            if (context) await context.close().catch(()=>{});
+          } catch (e: any) {
+            console.error(`   ❌ Error parseando HTML: ${e.message}`);
           }
         }
 
-        if (extraccionExitosa && detallesExtraidos) {
+        if (detallesExtraidos && Object.keys(detallesExtraidos).length > 0) {
            const infoCompleta = { ...conv, codigoBDNS: conv.codigoLimpio, ...detallesExtraidos };
 
            try {
@@ -354,9 +341,11 @@ export async function scrapeBDNS() {
              } catch(e) {}
            }
         } else {
-           console.log(`   ⏭️ Saltado tras fallar definitivamente.`);
+           console.log(`   ⏭️ Saltado (HTML no pudo ser extraído).`);
         }
       } 
+
+      await detailPage.close().catch(()=>{});
 
       // GUARDADO EN BD
       if (subvencionesAInsertar.length > 0) {
