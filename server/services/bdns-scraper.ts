@@ -6,7 +6,6 @@ import { bdnsGrants, scrapingState, companies } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import { checkGrantWithAI } from "./ai-evaluator";
 
-// Aplicamos el camuflaje
 puppeteer.use(StealthPlugin());
 
 function parseBDNSDate(dateStr: string) {
@@ -15,12 +14,25 @@ function parseBDNSDate(dateStr: string) {
   return new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
 }
 
-// Limpieza básica de procesos en caso de que queden zombis al arrancar
 function aniquilarZombis() {
   console.log("   🔨 [SISTEMA] Ejecutando limpieza de RAM y Disco...");
   try { execSync("pkill -9 -f chromium"); } catch (e) {}
   try { execSync("pkill -9 -f chrome"); } catch (e) {}
   try { execSync("rm -rf /tmp/puppeteer*"); } catch (e) {}
+}
+
+function getRandomProxy() {
+  const proxiesEnv = process.env.WEBSHARE_PROXIES || "";
+  const proxyList = proxiesEnv.split(',').map(p => p.trim()).filter(p => p !== "");
+
+  if (proxyList.length === 0) return null;
+
+  const randomProxyStr = proxyList[Math.floor(Math.random() * proxyList.length)];
+  const [host, port, user, pass] = randomProxyStr.split(':');
+
+  if (!host || !port) return null;
+
+  return { host, port, user, pass };
 }
 
 const MODOS_BUSQUEDA = [
@@ -46,17 +58,11 @@ export async function scrapeBDNS() {
 
   aniquilarZombis();
 
-  // =========================================================================
-  // 🕵️‍♂️ LÓGICA DE ROTACIÓN SECUENCIAL DE PROXIES
-  // =========================================================================
-  // 1. Miramos en la BD qué número de proxy toca
+  console.log("   [DEBUG] 1/4 - Preparando Proxy...");
   const proxyStateRecord = await db.query.scrapingState.findFirst({ where: eq(scrapingState.key, "current_proxy_index") });
   let currentProxyIndex = proxyStateRecord ? parseInt(proxyStateRecord.value, 10) : 1;
-
-  // 2. Buscamos esa variable en el .env
   let proxyString = process.env[`WEBSHARE_PROXIES_${currentProxyIndex}`];
 
-  // 3. Si no existe (ej. hemos llegado al 11 y solo hay 10), volvemos al 1
   if (!proxyString) {
     currentProxyIndex = 1;
     proxyString = process.env[`WEBSHARE_PROXIES_${currentProxyIndex}`];
@@ -69,22 +75,25 @@ export async function scrapeBDNS() {
       currentProxy = { host: partes[0], port: partes[1], user: partes[2], pass: partes[3] };
       console.log(`🕵️‍♂️ Máscara Proxy activada [ÍNDICE ${currentProxyIndex}]: Usando IP ${currentProxy.host}:${currentProxy.port}`);
     } else {
-      console.log(`⚠️ ATENCIÓN: El formato de WEBSHARE_PROXIES_${currentProxyIndex} es incorrecto. Debe ser IP:PUERTO:USUARIO:PASS`);
+      console.log(`⚠️ ATENCIÓN: El formato de WEBSHARE_PROXIES_${currentProxyIndex} es incorrecto.`);
     }
   } else {
-    console.log(`⚠️ ATENCIÓN: No se encontraron variables WEBSHARE_PROXIES_X. Navegando al descubierto.`);
+    console.log(`⚠️ ATENCIÓN: No hay variables WEBSHARE_PROXIES_X. Navegando al descubierto.`);
   }
-  // =========================================================================
 
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
   oneMonthAgo.setHours(0, 0, 0, 0); 
 
+  console.log("   [DEBUG] 2/4 - Comprobando base de datos de empresas...");
   const todasLasEmpresas = await db.select().from(companies);
   if (todasLasEmpresas.length === 0) {
+    // 🔥 EL CHIVATO ESTABA AQUÍ: Si no había empresas, se apagaba sin avisar.
+    console.log("   🛑 [DEBUG] ERROR: No hay empresas registradas en la Base de Datos. El bot aborta el proceso para no trabajar en vano.");
     isBdnsScrapingRunning = false;
     return;
   }
+  console.log(`   [DEBUG] 3/4 - Encontradas ${todasLasEmpresas.length} empresas activas.`);
 
   let browser: any = null;
   let chromiumPath = "";
@@ -99,7 +108,6 @@ export async function scrapeBDNS() {
     '--js-flags="--max-old-space-size=256"'
   ];
 
-  // Si hemos logrado montar el proxy, se lo inyectamos al navegador
   if (currentProxy) {
     browserArgs.push(`--proxy-server=http://${currentProxy.host}:${currentProxy.port}`);
   }
@@ -113,7 +121,9 @@ export async function scrapeBDNS() {
   };
 
   try {
+    console.log("   [DEBUG] 4/4 - Encendiendo el motor de Chromium con Puppeteer...");
     browser = await puppeteer.launch(puppeteerOptions as any);
+    console.log("   ✅ [DEBUG] Motor Chromium encendido correctamente. Entrando al bucle principal.");
 
     for (const modo of MODOS_BUSQUEDA) {
       if (shouldKamikaze) break; 
@@ -129,7 +139,6 @@ export async function scrapeBDNS() {
 
       let tablePage = await browser.newPage();
 
-      // 🔐 Autenticación del proxy en la tabla
       if (currentProxy && currentProxy.user && currentProxy.pass) {
         await tablePage.authenticate({ username: currentProxy.user, password: currentProxy.pass });
       }
@@ -308,7 +317,6 @@ export async function scrapeBDNS() {
           context = await browser.createBrowserContext();
           detailPage = await context.newPage();
 
-          // 🔐 Autenticación de Proxy en Detalles
           if (currentProxy && currentProxy.user && currentProxy.pass) {
             await detailPage.authenticate({ username: currentProxy.user, password: currentProxy.pass });
           }
@@ -362,19 +370,6 @@ export async function scrapeBDNS() {
              let algunaEmpresaCuadra = false;
              let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
 
-             /* === DESCOMENTAR PARA ACTIVAR IA REAL ===
-             let algunaEmpresaCuadra = false;
-             let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
-             const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
-             iaAnalisisMasivo.matches = matchesArray;
-             for (const match of matchesArray) {
-               if (match.cuadra) {
-                 algunaEmpresaCuadra = true;
-                 console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
-               }
-             }
-             ============================================================= */
-
              if (algunaEmpresaCuadra) {
                subvencionesAInsertar.push({
                  codigoBDNS: conv.codigoLimpio, 
@@ -412,8 +407,8 @@ export async function scrapeBDNS() {
     }
 
   } catch (error: any) {
-    if (error.message.includes("WAF_BLOCK") || error.message.includes("Timeout")) {
-       console.log("\n🛑 [SISTEMA] El Proxy fue bloqueado o es lento. Nos inmolamos para forzar un reinicio.");
+    if (error.message.includes("WAF_BLOCK") || error.message.includes("Timeout") || error.message.includes("net::ERR")) {
+       console.log("\n🛑 [SISTEMA] El Proxy fue bloqueado, timeout o red fallida. Nos inmolamos.");
        shouldKamikaze = true;
     } else {
        console.error("💀 Error CRÍTICO:", error);
@@ -427,7 +422,6 @@ export async function scrapeBDNS() {
        console.log("===============================================================");
        console.log("💥 ESTRATEGIA KAMIKAZE INICIADA 💥");
 
-       // 👇 ACTUALIZAMOS EL ÍNDICE DEL PROXY PARA EL PRÓXIMO REINICIO 👇
        const nextProxyIndex = currentProxyIndex + 1;
        try {
          await db.insert(scrapingState).values({ key: "current_proxy_index", value: nextProxyIndex.toString() })
@@ -442,7 +436,6 @@ export async function scrapeBDNS() {
 
        process.exit(1); 
     } else {
-       // Si termina con éxito, también podemos resetear el índice al 1 si queremos, o dejarlo
        await db.insert(scrapingState).values({ key: "kamikaze_resume", value: "false" })
          .onConflictDoUpdate({ target: scrapingState.key, set: { value: "false", updatedAt: new Date() } });
 
