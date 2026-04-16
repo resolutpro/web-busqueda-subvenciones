@@ -15,6 +15,13 @@ function parseBDNSDate(dateStr: string) {
   return new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
 }
 
+// 🔥 EL MAZO NUCLEAR: Función para aniquilar zombis sin piedad
+function aniquilarZombis() {
+  console.log("   🔨 [SISTEMA] Ejecutando mazo nuclear contra procesos zombis...");
+  try { execSync("pkill -9 -f chromium"); } catch (e) {}
+  try { execSync("pkill -9 -f chrome"); } catch (e) {}
+}
+
 const MODOS_BUSQUEDA = [
   { id: 'C', nombre: 'Administración del Estado', seleccionarEspecificos: 'ALL' },
   { id: 'A', nombre: 'Comunidades autónomas', seleccionarEspecificos: [ 'ANDALUCÍA', 'ARAGÓN', 'CASTILLA Y LEÓN', 'COMUNITAT VALENCIANA', 'EXTREMADURA', 'GALICIA' ] },
@@ -31,15 +38,13 @@ export async function scrapeBDNS() {
   }
 
   isBdnsScrapingRunning = true;
-  // ⏱️ INICIAMOS EL RELOJ MAESTRO
   const GLOBAL_START_TIME = Date.now();
   let shouldAutoResume = false;
 
-  console.log("🚀 Iniciando BDNS (ESTRATEGIA GOLPE Y FUGA: TANDAS DE 4 MINUTOS)...");
+  console.log("🚀 Iniciando BDNS (ESTRATEGIA PROTOCOLO FÉNIX: MAZO + RESURRECCIÓN)...");
 
-  console.log("🧹 Limpiando RAM y procesos zombis...");
-  try { execSync("pkill -f chromium"); } catch (e) {}
-  try { execSync("pkill -f chrome"); } catch (e) {}
+  // Limpieza inicial con el mazo
+  aniquilarZombis();
 
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
@@ -52,10 +57,6 @@ export async function scrapeBDNS() {
     isBdnsScrapingRunning = false;
     return;
   }
-
-  const arrayEmpresasIA = todasLasEmpresas.map(e => ({
-    id: e.id, name: e.name, description: `Tamaño: ${e.size || 'No definido'}. Actividad: ${e.description}`
-  }));
 
   let browser: any = null;
   let chromiumPath = "";
@@ -80,7 +81,7 @@ export async function scrapeBDNS() {
     browser = await puppeteer.launch(puppeteerOptions as any);
 
     for (const modo of MODOS_BUSQUEDA) {
-      if (shouldAutoResume) break; // Si ya se acabó el tiempo en un modo anterior, saltamos los demás
+      if (shouldAutoResume) break; // Si ya se activó el relevo, saltamos el resto
 
       console.log(`\n======================================================`);
       console.log(`🔎 BÚSQUEDA: ${modo.nombre}`);
@@ -98,8 +99,14 @@ export async function scrapeBDNS() {
       let tablePage = await browser.newPage();
       await tablePage.setViewport({ width: 1280, height: 800 }); 
 
-      await tablePage.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      try {
+        // 🔥 AÑADIDO: Try-catch a la navegación inicial para detectar el bloqueo a tiempo
+        await tablePage.goto("https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias", { waitUntil: "networkidle2", timeout: 60000 });
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      } catch (navError: any) {
+        console.log(`❌ Error al cargar la página principal (WAF o Zombi). Abortando tabla.`);
+        throw new Error("WAF_BLOCK_MAIN"); // Provoca el protocolo Fénix
+      }
 
       try {
         await tablePage.evaluate(() => {
@@ -193,12 +200,10 @@ export async function scrapeBDNS() {
 
           if (isNaN(currentCode)) continue;
 
-          if (currentDate) {
-            if (currentDate < oneMonthAgo) {
-              console.log(`   🛑 Freno activado: Fecha antigua alcanzada.`);
-              keepScraping = false;
-              break; 
-            }
+          if (currentDate && currentDate < oneMonthAgo) {
+             console.log(`   🛑 Freno activado: Fecha antigua alcanzada.`);
+             keepScraping = false;
+             break; 
           }
 
           if (currentCode > stopCodeLimit) {
@@ -208,24 +213,19 @@ export async function scrapeBDNS() {
 
         if (!keepScraping) break;
 
-        if (keepScraping) {
-          const SELECTOR_BOTON_SIGUIENTE = 'button.mat-paginator-navigation-next'; 
-          try {
-            const estaDeshabilitado = await tablePage.$('button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled');
-            if (!estaDeshabilitado) {
-              await tablePage.evaluate((sel) => { (document.querySelector(sel) as HTMLElement)?.click(); }, SELECTOR_BOTON_SIGUIENTE);
-              await new Promise(resolve => setTimeout(resolve, 3000));
-              pageCounter++;
-            } else {
-              keepScraping = false; 
-            }
-          } catch (err) { keepScraping = false; }
+        const estaDeshabilitado = await tablePage.$('button.mat-paginator-navigation-next[disabled], button.mat-paginator-navigation-next.mat-button-disabled');
+        if (!estaDeshabilitado) {
+          await tablePage.evaluate((sel) => { (document.querySelector(sel) as HTMLElement)?.click(); }, 'button.mat-paginator-navigation-next');
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          pageCounter++;
+        } else {
+          keepScraping = false; 
         }
       } 
 
       await tablePage.close().catch(()=>{});
 
-      enlacesAProcesar.reverse(); // Del más viejo al más nuevo
+      enlacesAProcesar.reverse(); 
       console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces.\n`);
 
       if (enlacesAProcesar.length === 0) continue;
@@ -236,21 +236,22 @@ export async function scrapeBDNS() {
       console.log(`🚀 [FASE 2] Iniciando extracción de detalles...`);
 
       const subvencionesAInsertar = [];
-      let updatedHighestCode = highestCodeThisSession;
 
       for (let i = 0; i < enlacesAProcesar.length; i++) {
 
-        // ⏱️ LA MAGIA: VERIFICAMOS SI LLEVAMOS MÁS DE 4 MINUTOS (240.000 ms)
         const tiempoTranscurrido = Date.now() - GLOBAL_START_TIME;
         if (tiempoTranscurrido > 240000) {
-           console.log(`\n⏰ ¡TIEMPO LÍMITE ALCANZADO! (4 minutos de ejecución).`);
-           console.log(`🛑 Nos retiramos antes de que el cortafuegos nos detecte.`);
-           shouldAutoResume = true; // Activamos la bandera para que se auto-ejecute luego
-           break; // Rompemos el bucle for
+           console.log(`\n⏰ ¡TIEMPO LÍMITE ALCANZADO! (4 minutos). Nos retiramos.`);
+           shouldAutoResume = true; 
+           break; 
         }
 
         const conv = enlacesAProcesar[i];
         console.log(`[${i+1}/${enlacesAProcesar.length}] Leyendo detalle BDNS ${conv.currentCode}...`);
+
+        const pausaHumana = Math.floor(Math.random() * 30000) + 20000;
+        console.log(`   ⏳ Lector humano: leyendo durante ${(pausaHumana/1000).toFixed(1)}s...`);
+        await new Promise(resolve => setTimeout(resolve, pausaHumana));
 
         let detallesExtraidos: any = null;
         let extraccionExitosa = false;
@@ -293,14 +294,9 @@ export async function scrapeBDNS() {
 
           extraccionExitosa = true; 
 
-          // Pequeña pausa de gracia
-          await new Promise(r => setTimeout(r, Math.random() * 2000 + 2000));
-
         } catch (err: any) {
-           console.error(`   ❌ Error web: ${err.message}`);
-           // Si hay un timeout prematuro, también abortamos por precaución
-           shouldAutoResume = true;
-           break; 
+           console.error(`   ❌ Cortafuegos interceptó (Timeout). Activando resurrección.`);
+           throw new Error("WAF_BLOCK");
         } finally {
           if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(()=>{});
           if (context) await context.close().catch(()=>{});
@@ -310,22 +306,9 @@ export async function scrapeBDNS() {
            const infoCompleta = { ...conv, codigoBDNS: conv.codigoLimpio, ...detallesExtraidos };
 
            try {
-             console.log(`   🤖 [MODO PRUEBA] IA desactivada. Simulando rechazo automático...`);
+             console.log(`   🤖 [MODO PRUEBA] IA desactivada. Simulando rechazo...`);
              let algunaEmpresaCuadra = false;
              let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
-
-             /* === DESCOMENTAR PARA ACTIVAR IA REAL ===
-             let algunaEmpresaCuadra = false;
-             let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
-             const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
-             iaAnalisisMasivo.matches = matchesArray;
-             for (const match of matchesArray) {
-               if (match.cuadra) {
-                 algunaEmpresaCuadra = true;
-                 console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
-               }
-             }
-             ============================================================= */
 
              if (algunaEmpresaCuadra) {
                subvencionesAInsertar.push({
@@ -337,46 +320,50 @@ export async function scrapeBDNS() {
                  detallesExtraidos: detallesExtraidos, 
                  iaAnalisis: iaAnalisisMasivo
                });
-               console.log(`   ⏳ Añadida a cola.`);
              }
            } catch (iaErr: any) {}
 
-           // ACTUALIZACIÓN CONSTANTE DE LA BD
-           if (conv.currentCode > updatedHighestCode) {
-             updatedHighestCode = conv.currentCode;
+           if (conv.currentCode > highestCodeThisSession) {
+             highestCodeThisSession = conv.currentCode;
              try {
-                await db.insert(scrapingState).values({ key: stateKey, value: updatedHighestCode.toString() })
-                  .onConflictDoUpdate({ target: scrapingState.key, set: { value: updatedHighestCode.toString(), updatedAt: new Date() } });
+                await db.insert(scrapingState).values({ key: stateKey, value: highestCodeThisSession.toString() })
+                  .onConflictDoUpdate({ target: scrapingState.key, set: { value: highestCodeThisSession.toString(), updatedAt: new Date() } });
              } catch(e) {}
            }
         }
-      } // Fin for enlacesAProcesar
+      } 
 
-      // GUARDADO EN BD
       if (subvencionesAInsertar.length > 0) {
         try {
-          console.log(`\n💾 Insertando ${subvencionesAInsertar.length} subvenciones en BD...`);
           await db.insert(bdnsGrants).values(subvencionesAInsertar);
-        } catch (dbErr) { console.error("❌ Error guardando en BD:", dbErr); }
+        } catch (dbErr) {}
       }
     } 
 
     if (!shouldAutoResume) {
-      console.log(`\n🎉 Scraping BDNS completado al 100%. No quedan subvenciones nuevas.`);
+      console.log(`\n🎉 Scraping BDNS completado al 100%.`);
       await db.insert(scrapingState).values({ key: "last_bdns_sync", value: new Date().toISOString() })
         .onConflictDoUpdate({ target: scrapingState.key, set: { value: new Date().toISOString(), updatedAt: new Date() }});
     }
 
-  } catch (error) {
-    console.error("💀 Error CRÍTICO:", error);
+  } catch (error: any) {
+    // 🔥 CUALQUIER error de Timeout o bloqueo activa el letargo y la resurrección
+    if (error.message.includes("WAF_BLOCK") || error.message.includes("Timeout")) {
+       console.log("\n🛑 [SISTEMA] Cortafuegos detectado o Timeout. Abortando misión.");
+       shouldAutoResume = true;
+    } else {
+       console.error("💀 Error CRÍTICO:", error);
+    }
   } finally {
-    // 1. ABRIMOS EL CERROJO (Vital para que pueda volver a ejecutarse)
     isBdnsScrapingRunning = false;
 
-    // 2. MATAMOS EL NAVEGADOR POR COMPLETO
+    // 1. Intentamos el cierre amable
     if (browser) await browser.close().catch(() => {});
 
-    console.log("🔓 Cerrojo liberado. Navegador cerrado completamente.");
+    // 2. 🔥 EL MAZO NUCLEAR SIEMPRE, PASE LO QUE PASE
+    aniquilarZombis();
+
+    console.log("🔓 Cerrojo liberado. Sistema desinfectado de zombis.");
 
     // 3. EL AUTO-RELEVO
     if (shouldAutoResume) {
@@ -384,11 +371,10 @@ export async function scrapeBDNS() {
        console.log("💤 Entrando en letargo profundo de 3 MINUTOS para evadir WAF...");
        console.log("===============================================================");
 
-       // El bot se vuelve a llamar a sí mismo después de 3 minutos de total inactividad
        setTimeout(() => {
-           console.log("\n⏰ ¡Letargo terminado! Arrancando la siguiente tanda de 4 minutos...");
+           console.log("\n⏰ ¡Letargo terminado! El Fénix resurge...");
            scrapeBDNS();
-       }, 180000); // 180.000 ms = 3 Minutos
+       }, 180000); // 3 Minutos
     }
   }
 }
