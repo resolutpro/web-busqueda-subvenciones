@@ -31,23 +31,33 @@ export async function scrapeBDNS() {
   }
 
   isBdnsScrapingRunning = true;
-  console.log("🚀 Iniciando scraping BDNS (REGLA DE LOS 3 MINUTOS ACTIVADA)...");
+  // ⏱️ INICIAMOS EL RELOJ MAESTRO
+  const GLOBAL_START_TIME = Date.now();
+  let shouldAutoResume = false;
 
-  console.log("🧹 Limpiando RAM del servidor...");
+  console.log("🚀 Iniciando BDNS (ESTRATEGIA GOLPE Y FUGA: TANDAS DE 4 MINUTOS)...");
+
+  console.log("🧹 Limpiando RAM y procesos zombis...");
   try { execSync("pkill -f chromium"); } catch (e) {}
   try { execSync("pkill -f chrome"); } catch (e) {}
 
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
   oneMonthAgo.setHours(0, 0, 0, 0); 
-  console.log(`\n📅 ATENCIÓN: Límite de antigüedad -> ${oneMonthAgo.toLocaleDateString('es-ES')}`);
+  console.log(`\n📅 Límite de antigüedad -> ${oneMonthAgo.toLocaleDateString('es-ES')}`);
 
   const todasLasEmpresas = await db.select().from(companies);
   if (todasLasEmpresas.length === 0) {
+    console.log("\n⚠️ [BDNS] No hay empresas registradas. Deteniendo scraper.\n");
     isBdnsScrapingRunning = false;
     return;
   }
 
+  const arrayEmpresasIA = todasLasEmpresas.map(e => ({
+    id: e.id, name: e.name, description: `Tamaño: ${e.size || 'No definido'}. Actividad: ${e.description}`
+  }));
+
+  let browser: any = null;
   let chromiumPath = "";
   try { chromiumPath = execSync("which chromium").toString().trim(); } 
   catch (e) { chromiumPath = "chromium"; }
@@ -66,10 +76,12 @@ export async function scrapeBDNS() {
     ]
   };
 
-  let browser: any = null;
-
   try {
+    browser = await puppeteer.launch(puppeteerOptions as any);
+
     for (const modo of MODOS_BUSQUEDA) {
+      if (shouldAutoResume) break; // Si ya se acabó el tiempo en un modo anterior, saltamos los demás
+
       console.log(`\n======================================================`);
       console.log(`🔎 BÚSQUEDA: ${modo.nombre}`);
       console.log(`======================================================\n`);
@@ -82,8 +94,6 @@ export async function scrapeBDNS() {
       // =========================================================================
       // FASE 1: RECOPILACIÓN RÁPIDA DE ENLACES
       // =========================================================================
-      browser = await puppeteer.launch(puppeteerOptions as any);
-
       console.log(`🚀 [FASE 1] Recopilando URLs de la tabla...`);
       let tablePage = await browser.newPage();
       await tablePage.setViewport({ width: 1280, height: 800 }); 
@@ -139,7 +149,7 @@ export async function scrapeBDNS() {
 
       } catch (err) {
         console.error(`❌ Error configurando filtros. Saltando sección.`);
-        await browser.close().catch(()=>{});
+        await tablePage.close().catch(()=>{});
         continue; 
       }
 
@@ -184,9 +194,8 @@ export async function scrapeBDNS() {
           if (isNaN(currentCode)) continue;
 
           if (currentDate) {
-            const esAntigua = currentDate < oneMonthAgo;
-            if (esAntigua) {
-              console.log(`   🛑 Freno activado: Hemos llegado a una fecha antigua (${currentDate.toLocaleDateString('es-ES')}).`);
+            if (currentDate < oneMonthAgo) {
+              console.log(`   🛑 Freno activado: Fecha antigua alcanzada.`);
               keepScraping = false;
               break; 
             }
@@ -214,52 +223,37 @@ export async function scrapeBDNS() {
         }
       } 
 
-      // 🔥 EL PASO CRÍTICO QUE FALTABA: CERRAMOS EL NAVEGADOR TRAS LA FASE 1
-      await browser.close().catch(()=>{});
-      browser = null;
+      await tablePage.close().catch(()=>{});
 
-      enlacesAProcesar.reverse();
-      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces. Desconectando TCP antiguo...\n`);
+      enlacesAProcesar.reverse(); // Del más viejo al más nuevo
+      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces.\n`);
 
       if (enlacesAProcesar.length === 0) continue;
 
       // =========================================================================
-      // FASE 2: EXTRACCIÓN CON REINICIO PREVENTIVO A LOS 3.5 MINUTOS
+      // FASE 2: EXTRACCIÓN DETALLADA CON CONTROL DE TIEMPO
       // =========================================================================
-      console.log(`🚀 [FASE 2] Iniciando extracción (Táctica de Evasión de 3 minutos)...`);
+      console.log(`🚀 [FASE 2] Iniciando extracción de detalles...`);
 
       const subvencionesAInsertar = [];
       let updatedHighestCode = highestCodeThisSession;
 
-      // Arrancamos navegador nuevo para la Fase 2
-      browser = await puppeteer.launch(puppeteerOptions as any);
-      let browserStartTime = Date.now();
-
       for (let i = 0; i < enlacesAProcesar.length; i++) {
-        const conv = enlacesAProcesar[i];
 
-        // ⏱️ COMPROBACIÓN DEL RELOJ: ¿Llevamos más de 3.5 minutos conectados?
-        const tiempoConectado = Date.now() - browserStartTime;
-        if (tiempoConectado > 210000) { // 210.000 ms = 3.5 minutos
-          console.log(`\n   ⏱️ ¡ALERTA WAF! Llevamos ${(tiempoConectado/1000).toFixed(0)}s conectados. El cortafuegos está a punto de detectarnos.`);
-          console.log(`   🔄 CERRANDO navegador para reiniciar la sesión TCP de forma segura...`);
-
-          await browser.close().catch(()=>{});
-          await new Promise(resolve => setTimeout(resolve, 5000)); // Breve pausa para limpiar el socket
-
-          console.log(`   🚀 Abriendo navegador fresco. Contador reseteado a 0.\n`);
-          browser = await puppeteer.launch(puppeteerOptions as any);
-          browserStartTime = Date.now();
+        // ⏱️ LA MAGIA: VERIFICAMOS SI LLEVAMOS MÁS DE 4 MINUTOS (240.000 ms)
+        const tiempoTranscurrido = Date.now() - GLOBAL_START_TIME;
+        if (tiempoTranscurrido > 240000) {
+           console.log(`\n⏰ ¡TIEMPO LÍMITE ALCANZADO! (4 minutos de ejecución).`);
+           console.log(`🛑 Nos retiramos antes de que el cortafuegos nos detecte.`);
+           shouldAutoResume = true; // Activamos la bandera para que se auto-ejecute luego
+           break; // Rompemos el bucle for
         }
 
+        const conv = enlacesAProcesar[i];
         console.log(`[${i+1}/${enlacesAProcesar.length}] Leyendo detalle BDNS ${conv.currentCode}...`);
 
-        // Pausa humana realista, pero más corta para no consumir los 3 mins a lo tonto
-        const pausaHumana = Math.floor(Math.random() * 8000) + 12000; // Entre 12s y 20s
-        console.log(`   ⏳ Lector humano: ${(pausaHumana/1000).toFixed(1)}s...`);
-        await new Promise(resolve => setTimeout(resolve, pausaHumana));
-
         let detallesExtraidos: any = null;
+        let extraccionExitosa = false;
         let context: any = null;
         let detailPage: any = null;
 
@@ -276,7 +270,6 @@ export async function scrapeBDNS() {
             }
           });
 
-          // Timeout estricto. Si falla, cerramos de golpe por seguridad
           await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
           await detailPage.waitForSelector('.titulo-campo', { timeout: 30000 });
 
@@ -298,21 +291,41 @@ export async function scrapeBDNS() {
             return res;
           });
 
+          extraccionExitosa = true; 
+
+          // Pequeña pausa de gracia
+          await new Promise(r => setTimeout(r, Math.random() * 2000 + 2000));
+
         } catch (err: any) {
-           console.error(`   ❌ Cortafuegos interceptó (Timeout). Abortando este lote.`);
-           throw new Error("WAF_BLOCK");
+           console.error(`   ❌ Error web: ${err.message}`);
+           // Si hay un timeout prematuro, también abortamos por precaución
+           shouldAutoResume = true;
+           break; 
         } finally {
           if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(()=>{});
           if (context) await context.close().catch(()=>{});
         }
 
-        if (detallesExtraidos) {
+        if (extraccionExitosa && detallesExtraidos) {
            const infoCompleta = { ...conv, codigoBDNS: conv.codigoLimpio, ...detallesExtraidos };
 
            try {
              console.log(`   🤖 [MODO PRUEBA] IA desactivada. Simulando rechazo automático...`);
              let algunaEmpresaCuadra = false;
              let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
+
+             /* === DESCOMENTAR PARA ACTIVAR IA REAL ===
+             let algunaEmpresaCuadra = false;
+             let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
+             const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
+             iaAnalisisMasivo.matches = matchesArray;
+             for (const match of matchesArray) {
+               if (match.cuadra) {
+                 algunaEmpresaCuadra = true;
+                 console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
+               }
+             }
+             ============================================================= */
 
              if (algunaEmpresaCuadra) {
                subvencionesAInsertar.push({
@@ -324,10 +337,11 @@ export async function scrapeBDNS() {
                  detallesExtraidos: detallesExtraidos, 
                  iaAnalisis: iaAnalisisMasivo
                });
+               console.log(`   ⏳ Añadida a cola.`);
              }
            } catch (iaErr: any) {}
 
-           // Guardado INMEDIATO del progreso en BD
+           // ACTUALIZACIÓN CONSTANTE DE LA BD
            if (conv.currentCode > updatedHighestCode) {
              updatedHighestCode = conv.currentCode;
              try {
@@ -336,36 +350,45 @@ export async function scrapeBDNS() {
              } catch(e) {}
            }
         }
-      } 
+      } // Fin for enlacesAProcesar
 
-      // GUARDADO AL TERMINAR LA SECCIÓN
+      // GUARDADO EN BD
       if (subvencionesAInsertar.length > 0) {
         try {
           console.log(`\n💾 Insertando ${subvencionesAInsertar.length} subvenciones en BD...`);
           await db.insert(bdnsGrants).values(subvencionesAInsertar);
         } catch (dbErr) { console.error("❌ Error guardando en BD:", dbErr); }
       }
-
-      // Cerramos el navegador de la Fase 2 antes de pasar al siguiente modo (C -> A -> L -> O)
-      await browser.close().catch(()=>{});
-      browser = null;
     } 
 
-    console.log(`\n🎉 Scraping BDNS completado.`);
-    await db.insert(scrapingState).values({ key: "last_bdns_sync", value: new Date().toISOString() })
-      .onConflictDoUpdate({ target: scrapingState.key, set: { value: new Date().toISOString(), updatedAt: new Date() }});
-
-  } catch (error: any) {
-    if (error.message === "WAF_BLOCK") {
-       console.log("\n🛑 [ESTRATEGIA ACTIVA] El cortafuegos detectó actividad inusual.");
-       console.log("🛑 Proceso cerrado intencionadamente para limpiar la IP.");
-       console.log("✅ El progreso está guardado en BD. Se retomará en la próxima ejecución.\n");
-    } else {
-       console.error("💀 Error CRÍTICO:", error);
+    if (!shouldAutoResume) {
+      console.log(`\n🎉 Scraping BDNS completado al 100%. No quedan subvenciones nuevas.`);
+      await db.insert(scrapingState).values({ key: "last_bdns_sync", value: new Date().toISOString() })
+        .onConflictDoUpdate({ target: scrapingState.key, set: { value: new Date().toISOString(), updatedAt: new Date() }});
     }
+
+  } catch (error) {
+    console.error("💀 Error CRÍTICO:", error);
   } finally {
+    // 1. ABRIMOS EL CERROJO (Vital para que pueda volver a ejecutarse)
     isBdnsScrapingRunning = false;
+
+    // 2. MATAMOS EL NAVEGADOR POR COMPLETO
     if (browser) await browser.close().catch(() => {});
-    console.log("🔓 Cerrojo liberado. Navegador destruido.");
+
+    console.log("🔓 Cerrojo liberado. Navegador cerrado completamente.");
+
+    // 3. EL AUTO-RELEVO
+    if (shouldAutoResume) {
+       console.log("===============================================================");
+       console.log("💤 Entrando en letargo profundo de 3 MINUTOS para evadir WAF...");
+       console.log("===============================================================");
+
+       // El bot se vuelve a llamar a sí mismo después de 3 minutos de total inactividad
+       setTimeout(() => {
+           console.log("\n⏰ ¡Letargo terminado! Arrancando la siguiente tanda de 4 minutos...");
+           scrapeBDNS();
+       }, 180000); // 180.000 ms = 3 Minutos
+    }
   }
 }
