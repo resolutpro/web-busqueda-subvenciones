@@ -1,4 +1,3 @@
-// Importamos puppeteer-extra y el plugin stealth
 import puppeteer from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { execSync } from "child_process";
@@ -32,7 +31,7 @@ export async function scrapeBDNS() {
   }
 
   isBdnsScrapingRunning = true;
-  console.log("🚀 Iniciando scraping BDNS (HUMANO REAL + ABORTO SEGURO)...");
+  console.log("🚀 Iniciando scraping BDNS (REGLA DE LOS 3 MINUTOS ACTIVADA)...");
 
   console.log("🧹 Limpiando RAM del servidor...");
   try { execSync("pkill -f chromium"); } catch (e) {}
@@ -45,16 +44,10 @@ export async function scrapeBDNS() {
 
   const todasLasEmpresas = await db.select().from(companies);
   if (todasLasEmpresas.length === 0) {
-    console.log("\n⚠️ [BDNS] No hay empresas registradas. Deteniendo scraper.\n");
     isBdnsScrapingRunning = false;
     return;
   }
 
-  const arrayEmpresasIA = todasLasEmpresas.map(e => ({
-    id: e.id, name: e.name, description: `Tamaño: ${e.size || 'No definido'}. Actividad: ${e.description}`
-  }));
-
-  let browser: any = null;
   let chromiumPath = "";
   try { chromiumPath = execSync("which chromium").toString().trim(); } 
   catch (e) { chromiumPath = "chromium"; }
@@ -73,9 +66,9 @@ export async function scrapeBDNS() {
     ]
   };
 
-  try {
-    browser = await puppeteer.launch(puppeteerOptions as any);
+  let browser: any = null;
 
+  try {
     for (const modo of MODOS_BUSQUEDA) {
       console.log(`\n======================================================`);
       console.log(`🔎 BÚSQUEDA: ${modo.nombre}`);
@@ -89,6 +82,8 @@ export async function scrapeBDNS() {
       // =========================================================================
       // FASE 1: RECOPILACIÓN RÁPIDA DE ENLACES
       // =========================================================================
+      browser = await puppeteer.launch(puppeteerOptions as any);
+
       console.log(`🚀 [FASE 1] Recopilando URLs de la tabla...`);
       let tablePage = await browser.newPage();
       await tablePage.setViewport({ width: 1280, height: 800 }); 
@@ -144,7 +139,7 @@ export async function scrapeBDNS() {
 
       } catch (err) {
         console.error(`❌ Error configurando filtros. Saltando sección.`);
-        await tablePage.close().catch(()=>{});
+        await browser.close().catch(()=>{});
         continue; 
       }
 
@@ -219,30 +214,49 @@ export async function scrapeBDNS() {
         }
       } 
 
-      await tablePage.close().catch(()=>{});
+      // 🔥 EL PASO CRÍTICO QUE FALTABA: CERRAMOS EL NAVEGADOR TRAS LA FASE 1
+      await browser.close().catch(()=>{});
+      browser = null;
 
-      // ✅ Invertimos el array para ir del más viejo al más nuevo.
-      // Así, si se corta, la BD guarda el límite por el que íbamos de forma segura.
       enlacesAProcesar.reverse();
-      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces. Procesando del más antiguo al más nuevo...\n`);
+      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces. Desconectando TCP antiguo...\n`);
 
       if (enlacesAProcesar.length === 0) continue;
 
       // =========================================================================
-      // FASE 2: EXTRACCIÓN HUMANA (CON ABORTO EN CASO DE BLOQUEO)
+      // FASE 2: EXTRACCIÓN CON REINICIO PREVENTIVO A LOS 3.5 MINUTOS
       // =========================================================================
-      console.log(`🚀 [FASE 2] Iniciando extracción de detalles...`);
+      console.log(`🚀 [FASE 2] Iniciando extracción (Táctica de Evasión de 3 minutos)...`);
 
       const subvencionesAInsertar = [];
       let updatedHighestCode = highestCodeThisSession;
 
+      // Arrancamos navegador nuevo para la Fase 2
+      browser = await puppeteer.launch(puppeteerOptions as any);
+      let browserStartTime = Date.now();
+
       for (let i = 0; i < enlacesAProcesar.length; i++) {
         const conv = enlacesAProcesar[i];
+
+        // ⏱️ COMPROBACIÓN DEL RELOJ: ¿Llevamos más de 3.5 minutos conectados?
+        const tiempoConectado = Date.now() - browserStartTime;
+        if (tiempoConectado > 210000) { // 210.000 ms = 3.5 minutos
+          console.log(`\n   ⏱️ ¡ALERTA WAF! Llevamos ${(tiempoConectado/1000).toFixed(0)}s conectados. El cortafuegos está a punto de detectarnos.`);
+          console.log(`   🔄 CERRANDO navegador para reiniciar la sesión TCP de forma segura...`);
+
+          await browser.close().catch(()=>{});
+          await new Promise(resolve => setTimeout(resolve, 5000)); // Breve pausa para limpiar el socket
+
+          console.log(`   🚀 Abriendo navegador fresco. Contador reseteado a 0.\n`);
+          browser = await puppeteer.launch(puppeteerOptions as any);
+          browserStartTime = Date.now();
+        }
+
         console.log(`[${i+1}/${enlacesAProcesar.length}] Leyendo detalle BDNS ${conv.currentCode}...`);
 
-        // 👨‍💻 PAUSA HUMANA REALISTA: Entre 20 y 50 segundos. Un humano tarda esto en leer.
-        const pausaHumana = Math.floor(Math.random() * 50000) + 20000;
-        console.log(`   ⏳ Lector humano activo: leyendo la web durante ${(pausaHumana/1000).toFixed(1)}s...`);
+        // Pausa humana realista, pero más corta para no consumir los 3 mins a lo tonto
+        const pausaHumana = Math.floor(Math.random() * 8000) + 12000; // Entre 12s y 20s
+        console.log(`   ⏳ Lector humano: ${(pausaHumana/1000).toFixed(1)}s...`);
         await new Promise(resolve => setTimeout(resolve, pausaHumana));
 
         let detallesExtraidos: any = null;
@@ -262,8 +276,8 @@ export async function scrapeBDNS() {
             }
           });
 
-          // Timeout de 60 segundos. Si tarda más, nos han bloqueado.
-          await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 60000 });
+          // Timeout estricto. Si falla, cerramos de golpe por seguridad
+          await detailPage.goto(conv.urlDetalle, { waitUntil: "domcontentloaded", timeout: 45000 });
           await detailPage.waitForSelector('.titulo-campo', { timeout: 30000 });
 
           detallesExtraidos = await detailPage.evaluate(() => {
@@ -285,13 +299,8 @@ export async function scrapeBDNS() {
           });
 
         } catch (err: any) {
-           console.error(`   ❌ Cortafuegos bloqueando la petición: ${err.message}`);
-
-           // 🚨 EL ABORTO: Aquí está la magia que propusiste.
-           // Si falla, significa que el cortafuegos nos cerró la puerta. No reintentamos.
-           // Lanzamos un error especial que romperá todos los bucles y cerrará el programa.
+           console.error(`   ❌ Cortafuegos interceptó (Timeout). Abortando este lote.`);
            throw new Error("WAF_BLOCK");
-
         } finally {
           if (detailPage && !detailPage.isClosed()) await detailPage.close().catch(()=>{});
           if (context) await context.close().catch(()=>{});
@@ -305,19 +314,6 @@ export async function scrapeBDNS() {
              let algunaEmpresaCuadra = false;
              let iaAnalisisMasivo: any = { matches: [], evaluaciones: [] };
 
-             /* === DESCOMENTAR PARA ACTIVAR IA REAL ===
-             let algunaEmpresaCuadra = false;
-             let iaAnalisisMasivo = await checkGrantWithAI(infoCompleta, arrayEmpresasIA);
-             const matchesArray = iaAnalisisMasivo.matches || iaAnalisisMasivo.evaluaciones || [];
-             iaAnalisisMasivo.matches = matchesArray;
-             for (const match of matchesArray) {
-               if (match.cuadra) {
-                 algunaEmpresaCuadra = true;
-                 console.log(`   ✅ CUADRA para: ${match.companyName || match.companyId}`);
-               }
-             }
-             ============================================================= */
-
              if (algunaEmpresaCuadra) {
                subvencionesAInsertar.push({
                  codigoBDNS: conv.codigoLimpio, 
@@ -328,12 +324,10 @@ export async function scrapeBDNS() {
                  detallesExtraidos: detallesExtraidos, 
                  iaAnalisis: iaAnalisisMasivo
                });
-               console.log(`   ⏳ Añadida a cola.`);
              }
            } catch (iaErr: any) {}
 
            // Guardado INMEDIATO del progreso en BD
-           // Así, si se aborta en la siguiente, sabemos que hemos llegado hasta aquí
            if (conv.currentCode > updatedHighestCode) {
              updatedHighestCode = conv.currentCode;
              try {
@@ -344,13 +338,17 @@ export async function scrapeBDNS() {
         }
       } 
 
-      // GUARDADO DE SUBVENCIONES QUE HAN CUADRADO
+      // GUARDADO AL TERMINAR LA SECCIÓN
       if (subvencionesAInsertar.length > 0) {
         try {
           console.log(`\n💾 Insertando ${subvencionesAInsertar.length} subvenciones en BD...`);
           await db.insert(bdnsGrants).values(subvencionesAInsertar);
         } catch (dbErr) { console.error("❌ Error guardando en BD:", dbErr); }
       }
+
+      // Cerramos el navegador de la Fase 2 antes de pasar al siguiente modo (C -> A -> L -> O)
+      await browser.close().catch(()=>{});
+      browser = null;
     } 
 
     console.log(`\n🎉 Scraping BDNS completado.`);
@@ -359,9 +357,9 @@ export async function scrapeBDNS() {
 
   } catch (error: any) {
     if (error.message === "WAF_BLOCK") {
-       console.log("\n🛑 [ESTRATEGIA ACTIVA] El cortafuegos se ha puesto agresivo.");
-       console.log("🛑 Cerramos el proceso por completo para evadirlo.");
-       console.log("✅ El progreso está guardado en la Base de Datos. La próxima ejecución continuará donde lo dejamos.\n");
+       console.log("\n🛑 [ESTRATEGIA ACTIVA] El cortafuegos detectó actividad inusual.");
+       console.log("🛑 Proceso cerrado intencionadamente para limpiar la IP.");
+       console.log("✅ El progreso está guardado en BD. Se retomará en la próxima ejecución.\n");
     } else {
        console.error("💀 Error CRÍTICO:", error);
     }
