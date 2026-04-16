@@ -1,4 +1,3 @@
-// Importamos puppeteer-extra y el plugin stealth
 import puppeteer from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { execSync } from "child_process";
@@ -10,10 +9,12 @@ import { checkGrantWithAI } from "./ai-evaluator";
 // Aplicamos el camuflaje
 puppeteer.use(StealthPlugin());
 
+// 🔥 CORRECCIÓN 1: Parseo de fechas matemático a prueba de zonas horarias
 function parseBDNSDate(dateStr: string) {
   if (!dateStr || dateStr === "") return null;
   const [day, month, year] = dateStr.split('/');
-  return new Date(`${year}-${month}-${day}`);
+  // En JavaScript, los meses van de 0 (Enero) a 11 (Diciembre), por eso restamos 1 al mes
+  return new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
 }
 
 const MODOS_BUSQUEDA = [
@@ -32,14 +33,18 @@ export async function scrapeBDNS() {
   }
 
   isBdnsScrapingRunning = true;
-  console.log("🚀 Iniciando scraping BDNS (MODO STEALTH + TORTUGA + REINICIO DURO)...");
+  console.log("🚀 Iniciando scraping BDNS (MODO STEALTH + REINICIO DURO + LOGS FECHAS)...");
 
   console.log("🧹 Limpiando RAM del servidor...");
   try { execSync("pkill -f chromium"); } catch (e) {}
   try { execSync("pkill -f chrome"); } catch (e) {}
 
+  // 🔥 CORRECCIÓN 2: Límite de hace un mes calculado limpiamente a las 00:00:00
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+  oneMonthAgo.setHours(0, 0, 0, 0); 
+  console.log(`\n📅 ATENCIÓN: El límite de antigüedad se ha fijado en -> ${oneMonthAgo.toLocaleDateString('es-ES')}`);
+  console.log(`📅 Cualquier subvención anterior a esta fecha detendrá la búsqueda.\n`);
 
   const todasLasEmpresas = await db.select().from(companies);
   if (todasLasEmpresas.length === 0) {
@@ -57,7 +62,6 @@ export async function scrapeBDNS() {
   try { chromiumPath = execSync("which chromium").toString().trim(); } 
   catch (e) { chromiumPath = "chromium"; }
 
-  // Extraemos las opciones para poder relanzar el navegador más adelante
   const puppeteerOptions = {
     headless: true,
     executablePath: chromiumPath || '/nix/var/nix/profiles/default/bin/chromium',
@@ -184,14 +188,27 @@ export async function scrapeBDNS() {
           const currentDate = parseBDNSDate(convocatoria.fechaRegistro);
 
           if (isNaN(currentCode)) continue;
-          if (currentDate && currentDate < oneMonthAgo) {
-            keepScraping = false;
-            break; 
+
+          // 🔥 CORRECCIÓN 3: LOGS DETALLADOS DE FECHAS
+          if (currentDate) {
+            const esAntigua = currentDate < oneMonthAgo;
+            console.log(`      🗓️ BDNS ${currentCode} | Fecha: ${currentDate.toLocaleDateString('es-ES')} | ¿Es anterior a ${oneMonthAgo.toLocaleDateString('es-ES')}? -> ${esAntigua ? 'SÍ 🛑' : 'NO ✅'}`);
+
+            if (esAntigua) {
+              console.log(`   🛑 Freno activado: Hemos llegado a una fecha de hace más de 1 mes.`);
+              keepScraping = false;
+              break; // Rompemos el bucle for
+            }
           }
 
           if (currentCode > stopCodeLimit) {
              enlacesAProcesar.push({ ...convocatoria, currentCode, codigoLimpio, currentDate });
           }
+        }
+
+        // Si hemos roto el bucle por fecha, salimos del while de paginación
+        if (!keepScraping) {
+           break;
         }
 
         if (keepScraping) {
@@ -210,7 +227,7 @@ export async function scrapeBDNS() {
       } 
 
       await tablePage.close().catch(()=>{});
-      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces.\n`);
+      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces válidos del último mes.\n`);
 
       if (enlacesAProcesar.length === 0) continue;
 
@@ -241,7 +258,6 @@ export async function scrapeBDNS() {
 
           try {
             if (intentos > 1) {
-              // 🚨 ESTA ES LA CLAVE: MATAMOS CHROME ANTES DE DORMIR
               console.log(`   🚨 [CORTAFUEGOS DETECTADO] Reintento ${intentos}/3. Apagando Chrome y durmiendo 5 min...`);
               if (browser) await browser.close().catch(()=>{});
 
