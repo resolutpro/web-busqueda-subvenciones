@@ -21,20 +21,6 @@ function aniquilarZombis() {
   try { execSync("rm -rf /tmp/puppeteer*"); } catch (e) {}
 }
 
-function getRandomProxy() {
-  const proxiesEnv = process.env.WEBSHARE_PROXIES || "";
-  const proxyList = proxiesEnv.split(',').map(p => p.trim()).filter(p => p !== "");
-
-  if (proxyList.length === 0) return null;
-
-  const randomProxyStr = proxyList[Math.floor(Math.random() * proxyList.length)];
-  const [host, port, user, pass] = randomProxyStr.split(':');
-
-  if (!host || !port) return null;
-
-  return { host, port, user, pass };
-}
-
 const MODOS_BUSQUEDA = [
   { id: 'C', nombre: 'Administración del Estado', seleccionarEspecificos: 'ALL' },
   { id: 'A', nombre: 'Comunidades autónomas', seleccionarEspecificos: [ 'ANDALUCÍA', 'ARAGÓN', 'CASTILLA Y LEÓN', 'COMUNITAT VALENCIANA', 'EXTREMADURA', 'GALICIA' ] },
@@ -58,9 +44,15 @@ export async function scrapeBDNS() {
 
   aniquilarZombis();
 
-  console.log("   [DEBUG] 1/4 - Preparando Proxy...");
-  const proxyStateRecord = await db.query.scrapingState.findFirst({ where: eq(scrapingState.key, "current_proxy_index") });
-  let currentProxyIndex = proxyStateRecord ? parseInt(proxyStateRecord.value, 10) : 1;
+  console.log("   [DEBUG] 1/5 - Preparando Proxy...");
+  let currentProxyIndex = 1;
+  try {
+    const proxyStateRecord = await db.query.scrapingState.findFirst({ where: eq(scrapingState.key, "current_proxy_index") });
+    if (proxyStateRecord) currentProxyIndex = parseInt(proxyStateRecord.value, 10);
+  } catch (e) {
+    console.error("   ❌ Error leyendo índice de proxy, usando 1 por defecto.");
+  }
+
   let proxyString = process.env[`WEBSHARE_PROXIES_${currentProxyIndex}`];
 
   if (!proxyString) {
@@ -81,19 +73,41 @@ export async function scrapeBDNS() {
     console.log(`⚠️ ATENCIÓN: No hay variables WEBSHARE_PROXIES_X. Navegando al descubierto.`);
   }
 
-  const oneMonthAgo = new Date();
-  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-  oneMonthAgo.setHours(0, 0, 0, 0); 
+  // 🔥 AQUÍ ESTÁ EL CAMBIO A 2 DÍAS DE ANTIGÜEDAD 🔥
+  const fechaLimite = new Date();
+  fechaLimite.setDate(fechaLimite.getDate() - 2); // Restamos 2 días
+  fechaLimite.setHours(0, 0, 0, 0); 
+  console.log(`\n📅 Límite de antigüedad establecido a 2 días -> ${fechaLimite.toLocaleDateString('es-ES')}`);
 
-  console.log("   [DEBUG] 2/4 - Comprobando base de datos de empresas...");
-  const todasLasEmpresas = await db.select().from(companies);
-  if (todasLasEmpresas.length === 0) {
-    // 🔥 EL CHIVATO ESTABA AQUÍ: Si no había empresas, se apagaba sin avisar.
-    console.log("   🛑 [DEBUG] ERROR: No hay empresas registradas en la Base de Datos. El bot aborta el proceso para no trabajar en vano.");
+  console.log("   [DEBUG] 2/5 - Comprobando base de datos de empresas...");
+  let todasLasEmpresas = [];
+  try {
+    todasLasEmpresas = await db.select().from(companies);
+  } catch (e) {
+    console.error("   🛑 Error crítico conectando con PostgreSQL.");
     isBdnsScrapingRunning = false;
     return;
   }
-  console.log(`   [DEBUG] 3/4 - Encontradas ${todasLasEmpresas.length} empresas activas.`);
+
+  if (todasLasEmpresas.length === 0) {
+    console.log("   🛑 [DEBUG] ERROR: No hay empresas registradas en la Base de Datos. El bot aborta.");
+    isBdnsScrapingRunning = false;
+    return;
+  }
+  console.log(`   [DEBUG] 3/5 - Encontradas ${todasLasEmpresas.length} empresas activas.`);
+
+  console.log("   [DEBUG] 4/5 - Pre-cargando progreso desde la Base de Datos...");
+  const stopCodeLimits: Record<string, number> = {};
+  for (const modo of MODOS_BUSQUEDA) {
+    const stateKey = `highest_bdns_code_${modo.id}`;
+    try {
+      const stateRecord = await db.query.scrapingState.findFirst({ where: eq(scrapingState.key, stateKey) });
+      stopCodeLimits[modo.id] = stateRecord ? parseInt(stateRecord.value, 10) : 0;
+    } catch (e) {
+      console.error(`   ❌ Error leyendo estado BDNS de ${modo.id}. Asumiendo 0.`);
+      stopCodeLimits[modo.id] = 0;
+    }
+  }
 
   let browser: any = null;
   let chromiumPath = "";
@@ -121,8 +135,11 @@ export async function scrapeBDNS() {
   };
 
   try {
-    console.log("   [DEBUG] 4/4 - Encendiendo el motor de Chromium con Puppeteer...");
+    console.log("   [DEBUG] 5/5 - Encendiendo el motor de Chromium con Puppeteer...");
     browser = await puppeteer.launch(puppeteerOptions as any);
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
     console.log("   ✅ [DEBUG] Motor Chromium encendido correctamente. Entrando al bucle principal.");
 
     for (const modo of MODOS_BUSQUEDA) {
@@ -132,10 +149,7 @@ export async function scrapeBDNS() {
       console.log(`🔎 BÚSQUEDA: ${modo.nombre}`);
       console.log(`======================================================\n`);
 
-      const stateKey = `highest_bdns_code_${modo.id}`;
-      const stateRecord = await db.query.scrapingState.findFirst({ where: eq(scrapingState.key, stateKey) });
-      const stopCodeLimit = stateRecord ? parseInt(stateRecord.value, 10) : 0;
-      let highestCodeThisSession = stopCodeLimit;
+      let highestCodeThisSession = stopCodeLimits[modo.id];
 
       let tablePage = await browser.newPage();
 
@@ -254,13 +268,14 @@ export async function scrapeBDNS() {
           if (isNaN(currentCode)) continue;
 
           if (currentDate) {
-            if (currentDate < oneMonthAgo) {
+            // 🔥 AQUÍ SE COMPRUEBA CONTRA EL NUEVO LÍMITE DE 2 DÍAS 🔥
+            if (currentDate < fechaLimite) {
               keepScraping = false;
               break; 
             }
           }
 
-          if (currentCode > stopCodeLimit) {
+          if (currentCode > highestCodeThisSession) {
              enlacesAProcesar.push({ ...convocatoria, currentCode, codigoLimpio, currentDate });
           }
         }
@@ -285,7 +300,7 @@ export async function scrapeBDNS() {
       await tablePage.close().catch(()=>{});
 
       enlacesAProcesar.reverse(); 
-      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces.\n`);
+      console.log(`✅ [FASE 1] Extraídos ${enlacesAProcesar.length} enlaces de los últimos 2 días.\n`);
 
       if (enlacesAProcesar.length === 0) continue;
 
@@ -386,9 +401,12 @@ export async function scrapeBDNS() {
            if (conv.currentCode > highestCodeThisSession) {
              highestCodeThisSession = conv.currentCode;
              try {
+                const stateKey = `highest_bdns_code_${modo.id}`;
                 await db.insert(scrapingState).values({ key: stateKey, value: highestCodeThisSession.toString() })
                   .onConflictDoUpdate({ target: scrapingState.key, set: { value: highestCodeThisSession.toString(), updatedAt: new Date() } });
-             } catch(e) {}
+             } catch(e) {
+                console.error("   ⚠️ No se pudo guardar el progreso de este enlace en BD, pero seguimos.");
+             }
            }
         }
       } 
@@ -426,18 +444,24 @@ export async function scrapeBDNS() {
        try {
          await db.insert(scrapingState).values({ key: "current_proxy_index", value: nextProxyIndex.toString() })
            .onConflictDoUpdate({ target: scrapingState.key, set: { value: nextProxyIndex.toString(), updatedAt: new Date() } });
-       } catch(e) {}
+       } catch(e) {
+         console.error("No se pudo rotar el proxy en BD", e);
+       }
 
        console.log(`🔄 El próximo arranque usará el proxy WEBSHARE_PROXIES_${nextProxyIndex}`);
        console.log("===============================================================");
 
-       await db.insert(scrapingState).values({ key: "kamikaze_resume", value: "true" })
-         .onConflictDoUpdate({ target: scrapingState.key, set: { value: "true", updatedAt: new Date() } });
+       try {
+         await db.insert(scrapingState).values({ key: "kamikaze_resume", value: "true" })
+           .onConflictDoUpdate({ target: scrapingState.key, set: { value: "true", updatedAt: new Date() } });
+       } catch (e) {}
 
        process.exit(1); 
     } else {
-       await db.insert(scrapingState).values({ key: "kamikaze_resume", value: "false" })
-         .onConflictDoUpdate({ target: scrapingState.key, set: { value: "false", updatedAt: new Date() } });
+       try {
+         await db.insert(scrapingState).values({ key: "kamikaze_resume", value: "false" })
+           .onConflictDoUpdate({ target: scrapingState.key, set: { value: "false", updatedAt: new Date() } });
+       } catch (e) {}
 
        console.log("🔓 Cerrojo liberado. Sistema en reposo.");
     }
