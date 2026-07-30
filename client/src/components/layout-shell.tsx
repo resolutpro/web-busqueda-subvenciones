@@ -31,10 +31,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   const navigation = [
     { name: 'Panel de Control', href: '/dashboard', icon: LayoutDashboard },
-    // Eliminamos la de Guardadas y añadimos las 3 nuevas
-    { name: 'BDNS', href: '/bdns', icon: Building2 },
-    { name: 'BOE', href: '/boe', icon: BookOpen },
-    { name: 'Europa (F&T)', href: '/europa', icon: Globe },
+    { name: 'Subvenciones', href: '/grants', icon: BookMarked },
     { name: 'Perfil de Empresa', href: '/profile', icon: Briefcase },
   ];
 
@@ -99,8 +96,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
             <div className="mt-2 px-3 py-3 bg-slate-50 rounded-xl border border-slate-100">
               <div className="flex items-center gap-3">
                 <Avatar className="h-9 w-9 border border-white shadow-sm">
-                  <AvatarImage src={user?.profileImageUrl} />
-                  <AvatarFallback>{user?.firstName?.[0]}{user?.lastName?.[0]}</AvatarFallback>
+                  <AvatarImage src={user?.profileImageUrl || undefined} />
+                  <AvatarFallback>{user?.firstName?.[0] || ""}{user?.lastName?.[0] || ""}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-900 truncate">

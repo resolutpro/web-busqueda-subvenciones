@@ -2,76 +2,54 @@ import {
   users,
   companies,
   grants,
-  matches,
+  grantMatches,
+  webhookDeliveries,
   type User,
-  type InsertUser,
   type Company,
   type InsertCompany,
   type Grant,
   type InsertGrant,
-  type Match,
-  type InsertMatch,
-  type GrantWithMatch,
+  type GrantMatch,
+  type InsertGrantMatch,
+  type WebhookDelivery,
+  type InsertWebhookDelivery,
   type UpsertUser,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, and, desc, sql, gte } from "drizzle-orm";
-// ELIMINAMOS EL IMPORT DE REPLIT AUTH
 
 export interface IStorage {
-  upsertGrant(grant: InsertGrant): Promise<Grant>;
   // Auth
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
 
   // Company
   getCompaniesByUserId(userId: string): Promise<Company[]>;
-  createCompany(company: InsertCompany): Promise<Company>;
+  createCompany(company: InsertCompany & { userId: string }): Promise<Company>;
   updateCompany(id: number, company: Partial<InsertCompany>): Promise<Company>;
+  getCompanyBySlug(slug: string): Promise<Company | undefined>;
 
   // Grants
   getGrants(params?: {
+    source?: string;
+    reviewStatus?: string;
     search?: string;
-    scope?: string;
-    minAmount?: number;
   }): Promise<Grant[]>;
   getGrant(id: number): Promise<Grant | undefined>;
-  createGrant(grant: InsertGrant): Promise<Grant>;
+  getGrantByExternalKey(externalKey: string): Promise<Grant | undefined>;
+  upsertGrantFromOpenclaw(grant: InsertGrant): Promise<Grant>;
 
   // Matches
-  getMatches(companyId: number): Promise<(Match & { grant: Grant })[]>;
-  getMatch(companyId: number, grantId: number): Promise<Match | undefined>;
-  createMatch(match: InsertMatch): Promise<Match>;
-  updateMatch(id: number, status: string): Promise<Match>;
+  getMatchesByCompany(companyId: number): Promise<(GrantMatch & { grant: Grant })[]>;
+  getMatchesByGrant(grantId: number): Promise<(GrantMatch & { company: Company | null })[]>;
+  replaceGrantMatches(grantId: number, matches: InsertGrantMatch[]): Promise<void>;
 
-  // Logic
-  generateMatchesForCompany(companyId: number): Promise<void>;
+  // Webhook Deliveries
+  logWebhookDelivery(delivery: InsertWebhookDelivery): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
-  async upsertGrant(insertGrant: InsertGrant): Promise<Grant> {
-    if (insertGrant.bdnsId) {
-      const [existing] = await db
-        .insert(grants)
-        .values(insertGrant)
-        .onConflictDoUpdate({
-          target: grants.bdnsId,
-          set: {
-            title: insertGrant.title,
-            endDate: insertGrant.endDate,
-            budget: insertGrant.budget,
-            rawText: insertGrant.rawText,
-          },
-        })
-        .returning();
-      return existing;
-    }
-
-    const [newGrant] = await db.insert(grants).values(insertGrant).returning();
-    return newGrant;
-  }
-
-  // --- NUEVA LÓGICA DE AUTH DIRECTA A BBDD ---
+  // Auth
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
@@ -88,8 +66,8 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return updatedUser;
   }
-  // -------------------------------------------
 
+  // Company
   async getCompaniesByUserId(userId: string): Promise<Company[]> {
     return await db
       .select()
@@ -97,7 +75,7 @@ export class DatabaseStorage implements IStorage {
       .where(eq(companies.userId, userId));
   }
 
-  async createCompany(insertCompany: InsertCompany): Promise<Company> {
+  async createCompany(insertCompany: InsertCompany & { userId: string }): Promise<Company> {
     const [company] = await db
       .insert(companies)
       .values(insertCompany)
@@ -106,9 +84,6 @@ export class DatabaseStorage implements IStorage {
     if (!company) {
       throw new Error("Error al crear la empresa en la base de datos");
     }
-
-    // Ejecutar el matching inmediatamente
-    await this.generateMatchesForCompany(company.id);
     return company;
   }
 
@@ -121,30 +96,33 @@ export class DatabaseStorage implements IStorage {
       .set(updates)
       .where(eq(companies.id, id))
       .returning();
+    return company;
+  }
 
-    await this.generateMatchesForCompany(company.id);
+  async getCompanyBySlug(slug: string): Promise<Company | undefined> {
+    const [company] = await db.select().from(companies).where(eq(companies.slug, slug));
     return company;
   }
 
   // Grants
   async getGrants(params?: {
+    source?: string;
+    reviewStatus?: string;
     search?: string;
-    scope?: string;
-    minAmount?: number;
   }): Promise<Grant[]> {
     let query = db.select().from(grants);
-
     const conditions = [];
+
+    if (params?.source) {
+      conditions.push(eq(grants.source, params.source));
+    }
+    if (params?.reviewStatus) {
+      conditions.push(eq(grants.reviewStatus, params.reviewStatus));
+    }
     if (params?.search) {
       conditions.push(
-        sql`(${grants.title} ILIKE ${`%${params.search}%`} OR ${grants.organismo} ILIKE ${`%${params.search}%`})`,
+        sql`(${grants.title} ILIKE ${`%${params.search}%`} OR ${grants.code} ILIKE ${`%${params.search}%`})`,
       );
-    }
-    if (params?.scope) {
-      conditions.push(eq(grants.scope, params.scope));
-    }
-    if (params?.minAmount) {
-      conditions.push(gte(grants.budget, params.minAmount));
     }
 
     if (conditions.length > 0) {
@@ -160,110 +138,71 @@ export class DatabaseStorage implements IStorage {
     return grant;
   }
 
-  async createGrant(insertGrant: InsertGrant): Promise<Grant> {
-    const [grant] = await db.insert(grants).values(insertGrant).returning();
+  async getGrantByExternalKey(externalKey: string): Promise<Grant | undefined> {
+    const [grant] = await db.select().from(grants).where(eq(grants.externalKey, externalKey));
     return grant;
   }
 
+  async upsertGrantFromOpenclaw(insertGrant: InsertGrant): Promise<Grant> {
+    const [upserted] = await db
+      .insert(grants)
+      .values(insertGrant)
+      .onConflictDoUpdate({
+        target: grants.externalKey,
+        set: {
+          reviewStatus: insertGrant.reviewStatus,
+          source: insertGrant.source,
+          code: insertGrant.code,
+          title: insertGrant.title,
+          publishedAt: insertGrant.publishedAt,
+          publicUrl: insertGrant.publicUrl,
+          scope: insertGrant.scope,
+          kind: insertGrant.kind,
+          relevanceScore: insertGrant.relevanceScore,
+          relevanceLabel: insertGrant.relevanceLabel,
+          relevanceReasons: insertGrant.relevanceReasons,
+          rawPayload: insertGrant.rawPayload,
+          lastReceivedAt: insertGrant.lastReceivedAt,
+          lastOpenclawRunId: insertGrant.lastOpenclawRunId,
+          isUpdated: insertGrant.isUpdated,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return upserted;
+  }
+
   // Matches
-  async getMatches(companyId: number): Promise<(Match & { grant: Grant })[]> {
-    return await db.query.matches.findMany({
-      where: eq(matches.companyId, companyId),
+  async getMatchesByCompany(companyId: number): Promise<(GrantMatch & { grant: Grant })[]> {
+    return await db.query.grantMatches.findMany({
+      where: eq(grantMatches.companyId, companyId),
       with: {
         grant: true,
       },
-      orderBy: desc(matches.score),
+      orderBy: desc(grantMatches.score),
     });
   }
 
-  async getMatch(
-    companyId: number,
-    grantId: number,
-  ): Promise<Match | undefined> {
-    const [match] = await db
-      .select()
-      .from(matches)
-      .where(
-        and(eq(matches.companyId, companyId), eq(matches.grantId, grantId)),
-      );
-    return match;
+  async getMatchesByGrant(grantId: number): Promise<(GrantMatch & { company: Company | null })[]> {
+    return await db.query.grantMatches.findMany({
+      where: eq(grantMatches.grantId, grantId),
+      with: {
+        company: true,
+      },
+      orderBy: desc(grantMatches.score),
+    });
   }
 
-  async createMatch(insertMatch: InsertMatch): Promise<Match> {
-    const [match] = await db.insert(matches).values(insertMatch).returning();
-    return match;
-  }
-
-  async updateMatch(id: number, status: string): Promise<Match> {
-    const [match] = await db
-      .update(matches)
-      .set({ status })
-      .where(eq(matches.id, id))
-      .returning();
-    return match;
-  }
-
-  async generateMatchesForCompany(companyId: number): Promise<void> {
-    const [company] = await db
-      .select()
-      .from(companies)
-      .where(eq(companies.id, companyId));
-    if (!company) return;
-
-    const allGrants = await this.getGrants();
-
-    for (const grant of allGrants) {
-      const existing = await this.getMatch(companyId, grant.id);
-      if (existing) continue;
-
-      let score = 0;
-
-      if (
-        company.description.toLowerCase().includes("digital") &&
-        (grant.title.toLowerCase().includes("digital") ||
-          grant.tags?.includes("Digitalizacion"))
-      ) {
-        score += 30;
-      }
-
-      if (
-        grant.scope === "Nacional" ||
-        grant.scope === "Europeo" ||
-        (company.location && grant.scope === company.location)
-      ) {
-        score += 20;
-      }
-
-      const keywords = company.description.toLowerCase().split(" ");
-      let keywordMatches = 0;
-      for (const word of keywords) {
-        if (
-          word.length > 3 &&
-          (grant.title.toLowerCase().includes(word) ||
-            grant.rawText?.toLowerCase().includes(word))
-        ) {
-          keywordMatches++;
-        }
-      }
-      score += Math.min(50, keywordMatches * 10);
-
-      if (score > 10) {
-        await this.createMatch({
-          companyId,
-          grantId: grant.id,
-          score,
-          status: "new",
-          aiAnalysis: {
-            summary: `Compatibilidad detectada basada en palabras clave: ${keywords.slice(0, 3).join(", ")}`,
-            expenses: ["Personal", "Equipamiento", "Software"],
-            requirements: [
-              "Estar al corriente con Hacienda",
-              "PYME constituida",
-            ],
-          },
-        });
-      }
+  async replaceGrantMatches(grantId: number, matches: InsertGrantMatch[]): Promise<void> {
+    await db.delete(grantMatches).where(eq(grantMatches.grantId, grantId));
+    if (matches.length > 0) {
+      await db.insert(grantMatches).values(matches);
     }
+  }
+
+  // Webhook Deliveries
+  async logWebhookDelivery(delivery: InsertWebhookDelivery): Promise<void> {
+    await db.insert(webhookDeliveries).values(delivery);
   }
 }
 

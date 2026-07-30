@@ -5,8 +5,8 @@ import { useToast } from "@/hooks/use-toast";
 
 interface GrantFilters {
   search?: string;
-  scope?: string;
-  minAmount?: string;
+  source?: string;
+  reviewStatus?: string;
 }
 
 export function useGrants(filters?: GrantFilters) {
@@ -18,8 +18,8 @@ export function useGrants(filters?: GrantFilters) {
     queryFn: async () => {
       const url = new URL(api.grants.list.path, window.location.origin);
       if (filters?.search) url.searchParams.append("search", filters.search);
-      if (filters?.scope) url.searchParams.append("scope", filters.scope);
-      if (filters?.minAmount) url.searchParams.append("minAmount", filters.minAmount);
+      if (filters?.source) url.searchParams.append("source", filters.source);
+      if (filters?.reviewStatus) url.searchParams.append("reviewStatus", filters.reviewStatus);
 
       const res = await fetch(url.toString(), { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch grants");

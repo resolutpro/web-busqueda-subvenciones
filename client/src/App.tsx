@@ -12,10 +12,6 @@ import GrantsListPage from "@/pages/grants-list";
 import GrantDetailPage from "@/pages/grant-detail";
 import CompanyProfilePage from "@/pages/company-profile";
 import NotFound from "@/pages/not-found";
-import BdnsGrantDetail from "./pages/bdns-grant-detail";
-import BdnsPage from "@/pages/bdns-page";
-import BoePage from "@/pages/boe-page";
-import EuropaPage from "@/pages/europa-page";
 
 
 // client/src/App.tsx
@@ -67,24 +63,17 @@ function Router() {
         <ProtectedRoute component={DashboardPage} />
       </Route>
 
+      <Route path="/grants">
+        <ProtectedRoute component={GrantsListPage} />
+      </Route>
 
+      <Route path="/grants/:id">
+        <ProtectedRoute component={GrantDetailPage} />
+      </Route>
 
       <Route path="/profile">
         <ProtectedRoute component={CompanyProfilePage} />
       </Route>
-
-      <Route path="/bdns">
-        <ProtectedRoute component={BdnsPage} />
-      </Route>
-      <Route path="/boe">
-        <ProtectedRoute component={BoePage} />
-      </Route>
-      <Route path="/europa">
-        <ProtectedRoute component={EuropaPage} />
-      </Route>
-       <Route path="/bdns-grants/:id">
-          <ProtectedRoute component={BdnsGrantDetail} />
-        </Route>
 
       {/* Fallback */}
       <Route component={NotFound} />

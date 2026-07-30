@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertCompanySchema, insertGrantSchema, companies, grants, matches, insertMatchSchema } from './schema';
+import { insertCompanySchema, insertGrantSchema, companies, grants, grantMatches, insertGrantMatchSchema } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -56,11 +56,11 @@ export const api = {
       path: '/api/grants' as const,
       input: z.object({
         search: z.string().optional(),
-        scope: z.string().optional(),
-        minAmount: z.string().optional(), // Passed as string from query
+        source: z.string().optional(),
+        reviewStatus: z.string().optional(),
       }).optional(),
       responses: {
-        200: z.array(z.custom<typeof grants.$inferSelect & { match?: typeof matches.$inferSelect }>()),
+        200: z.array(z.custom<typeof grants.$inferSelect & { match?: typeof grantMatches.$inferSelect }>()),
         401: errorSchemas.unauthorized,
       },
     },
@@ -68,7 +68,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/grants/:id' as const,
       responses: {
-        200: z.custom<typeof grants.$inferSelect & { match?: typeof matches.$inferSelect }>(),
+        200: z.custom<typeof grants.$inferSelect & { match?: typeof grantMatches.$inferSelect }>(),
         404: errorSchemas.notFound,
         401: errorSchemas.unauthorized,
       },
@@ -89,7 +89,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/matches' as const,
       responses: {
-        200: z.array(z.custom<typeof matches.$inferSelect & { grant: typeof grants.$inferSelect }>()),
+        200: z.array(z.custom<typeof grantMatches.$inferSelect & { grant: typeof grants.$inferSelect }>()),
         401: errorSchemas.unauthorized,
       },
     },
@@ -97,10 +97,10 @@ export const api = {
       method: 'PATCH' as const,
       path: '/api/matches/:id' as const,
       input: z.object({
-        status: z.enum(['new', 'viewed', 'saved', 'dismissed', 'applied']),
+        status: z.string(), // We don't have status on grantMatches anymore, but I'll change it later if needed
       }),
       responses: {
-        200: z.custom<typeof matches.$inferSelect>(),
+        200: z.custom<typeof grantMatches.$inferSelect>(),
         404: errorSchemas.notFound,
         401: errorSchemas.unauthorized,
       },

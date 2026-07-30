@@ -6,7 +6,6 @@ import {
   boolean,
   timestamp,
   jsonb,
-  real,
   varchar,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
@@ -18,92 +17,72 @@ export * from "./models/auth";
 
 // === TABLE DEFINITIONS ===
 
-export const tedGrants = pgTable("ted_grants", {
-  id: serial("id").primaryKey(),
-  identificador: text("identificador").unique().notNull(), // Ej: Número de aviso de TED
-  titulo: text("titulo").notNull(),
-  pais: text("pais"),
-  fechaPublicacion: timestamp("fecha_publicacion"),
-  urlDetalle: text("url_detalle"),
-  detallesExtraidos: jsonb("detalles_extraidos"), // Para guardar presupuesto, CPV, etc.
-  aiAnalysis: jsonb("ia_analisis"), // El veredicto de la IA
-  status: text("status").notNull().default("pending"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const boeGrants = pgTable("boe_grants", {
-  id: serial("id").primaryKey(),
-  identificador: text("identificador").unique().notNull(), // Equivalente al CVE (ej. BOE-B-2024-12345)
-  titulo: text("titulo").notNull(),
-  departamento: text("departamento"),
-  fechaPublicacion: timestamp("fecha_publicacion"),
-  urlPdf: text("url_pdf"),
-  urlHtml: text("url_html"),
-  aiAnalysis: jsonb("ia_analisis"), // Guardamos el análisis/filtro de la IA
-  status: text("status").notNull().default("pending"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const bdnsGrants = pgTable("bdns_grants", {
-  id: serial("id").primaryKey(),
-  codigoBDNS: text("codigo_bdns").unique().notNull(),
-  titulo: text("titulo").notNull(),
-  organoConvocante: text("organo_convocante"),
-  fechaRegistro: timestamp("fecha_registro"),
-  urlDetalle: text("url_detalle"),
-  detallesExtraidos: jsonb("detalles_extraidos"), // Presupuesto, base reguladora, etc.
-  iaAnalisis: jsonb("ia_analisis"), // Guardamos por qué la IA dijo que cuadraba
-  status: text("status").notNull().default("pending"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Tabla para guardar configuraciones/estado del sistema (ej. el último código escrapeado)
-export const scrapingState = pgTable("scraping_state", {
-  id: serial("id").primaryKey(),
-  key: text("key").unique().notNull(), // Ejemplo: 'highest_bdns_code'
-  value: text("value").notNull(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id")
     .notNull()
     .references(() => users.id),
+  slug: text("slug").unique().notNull(), // Añadido slug para mapeo con OpenClaw
   name: text("name").notNull(),
   cnae: text("cnae"),
   location: text("location"),
   size: text("size"), // 'micro', 'small', 'medium', 'large'
-  description: text("description").notNull(), // Vital for matching
+  description: text("description").notNull(), 
   createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const grants = pgTable("grants", {
   id: serial("id").primaryKey(),
-  bdnsId: text("bdns_id").unique(),
+  externalKey: text("external_key").unique().notNull(),
+  reviewStatus: text("review_status").notNull(), // 'new' o 'updated'
+  source: text("source").notNull(), // 'bdns', 'boe', 'eu-funding'
+  code: text("code"),
   title: text("title").notNull(),
-  organismo: text("organismo").notNull(), // e.g. Ministerio de Industria
-  scope: text("scope").notNull(), // 'Nacional', 'Autonomico', 'Local', 'Europeo'
-  startDate: timestamp("start_date"),
-  endDate: timestamp("end_date"),
-  budget: real("budget"),
-  rawText: text("raw_text"), // Full text for analysis
-  tags: jsonb("tags").$type<string[]>(), // e.g. ['Digitalizacion', 'PYMES']
+  publishedAt: timestamp("published_at"),
+  publicUrl: text("public_url"),
+  scope: text("scope"),
+  kind: text("kind"),
+  relevanceScore: integer("relevance_score"),
+  relevanceLabel: text("relevance_label"),
+  relevanceReasons: jsonb("relevance_reasons"), // Array de strings
+  rawPayload: jsonb("raw_payload"),
+  firstReceivedAt: timestamp("first_received_at").notNull().defaultNow(),
+  lastReceivedAt: timestamp("last_received_at").notNull().defaultNow(),
+  lastOpenclawRunId: text("last_openclaw_run_id"),
+  isNew: boolean("is_new").notNull().default(false),
+  isUpdated: boolean("is_updated").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const matches = pgTable("matches", {
+export const grantMatches = pgTable("grant_matches", {
   id: serial("id").primaryKey(),
-  companyId: integer("company_id")
-    .notNull()
-    .references(() => companies.id),
   grantId: integer("grant_id")
     .notNull()
-    .references(() => grants.id),
-  score: integer("score").notNull(), // 0-100
-  status: text("status").notNull().default("new"), // 'new', 'viewed', 'saved', 'dismissed', 'applied'
-  aiAnalysis: jsonb("ai_analysis"), // { summary: "...", expenses: "...", requirements: "..." }
+    .references(() => grants.id, { onDelete: "cascade" }),
+  companyId: integer("company_id")
+    .references(() => companies.id, { onDelete: "cascade" }), // Puede ser nulo si no mapea
+  entitySlug: text("entity_slug").notNull(),
+  displayName: text("display_name"),
+  score: integer("score"),
+  label: text("label"),
+  reasons: jsonb("reasons"), // Array de motivos
+  blockers: jsonb("blockers"),
+  fitSummary: text("fit_summary"),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  id: serial("id").primaryKey(),
+  source: text("source").notNull(),
+  runId: text("run_id").notNull(),
+  deliveryType: text("delivery_type").notNull(),
+  receivedAt: timestamp("received_at").notNull().defaultNow(),
+  itemCount: integer("item_count").notNull(),
+  statusCode: integer("status_code").notNull(),
+  rawBody: jsonb("raw_body"),
+  notes: text("notes"),
 });
 
 // === RELATIONS ===
@@ -113,29 +92,25 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
     fields: [companies.userId],
     references: [users.id],
   }),
-  matches: many(matches),
+  matches: many(grantMatches),
 }));
 
 export const grantsRelations = relations(grants, ({ many }) => ({
-  matches: many(matches),
+  matches: many(grantMatches),
 }));
 
-export const matchesRelations = relations(matches, ({ one }) => ({
+export const grantMatchesRelations = relations(grantMatches, ({ one }) => ({
   company: one(companies, {
-    fields: [matches.companyId],
+    fields: [grantMatches.companyId],
     references: [companies.id],
   }),
   grant: one(grants, {
-    fields: [matches.grantId],
+    fields: [grantMatches.grantId],
     references: [grants.id],
   }),
 }));
 
 // === SCHEMAS ===
-export const insertTedGrantSchema = createInsertSchema(tedGrants).omit({
-  id: true,
-  createdAt: true,
-});
 
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
@@ -146,25 +121,22 @@ export const insertCompanySchema = createInsertSchema(companies).omit({
 export const insertGrantSchema = createInsertSchema(grants).omit({
   id: true,
   createdAt: true,
+  updatedAt: true,
 });
 
-export const insertMatchSchema = createInsertSchema(matches).omit({
+export const insertGrantMatchSchema = createInsertSchema(grantMatches).omit({
   id: true,
   createdAt: true,
+  updatedAt: true,
 });
 
-export const insertBoeGrantSchema = createInsertSchema(boeGrants).omit({
+export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({
   id: true,
-  createdAt: true,
+  receivedAt: true,
 });
 
 
 // === TYPES ===
-export type TedGrant = typeof tedGrants.$inferSelect;
-export type InsertTedGrant = z.infer<typeof insertTedGrantSchema>;
-
-export type BoeGrant = typeof boeGrants.$inferSelect;
-export type InsertBoeGrant = z.infer<typeof insertBoeGrantSchema>;
 
 export type Company = typeof companies.$inferSelect;
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
@@ -172,18 +144,14 @@ export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type Grant = typeof grants.$inferSelect;
 export type InsertGrant = z.infer<typeof insertGrantSchema>;
 
-export type Match = typeof matches.$inferSelect;
-export type InsertMatch = z.infer<typeof insertMatchSchema>;
+export type GrantMatch = typeof grantMatches.$inferSelect;
+export type InsertGrantMatch = z.infer<typeof insertGrantMatchSchema>;
 
-export type GrantWithMatch = Grant & { match?: Match };
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
+export type InsertWebhookDelivery = z.infer<typeof insertWebhookDeliverySchema>;
+
+export type GrantWithMatches = Grant & { matches?: GrantMatch[] };
 
 // Request/Response Types
 export type CreateCompanyRequest = InsertCompany;
 export type UpdateCompanyRequest = Partial<InsertCompany>;
-
-// For AI Analysis stored in jsonb
-export interface AiAnalysis {
-  summary: string;
-  expenses: string[]; // Gastos subvencionables
-  requirements: string[]; // Requisitos duros
-}

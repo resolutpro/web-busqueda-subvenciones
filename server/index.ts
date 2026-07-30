@@ -2,17 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { scrapeBDNS } from "./services/bdns-scraper";
-import { fetchTEDGrants } from "./services/ted-scraper";
-
-// Importamos node-cron y tu función del BOE
-import cron from "node-cron";
-import { fetchDailyBOE } from "./services/boe-scraper";
-
-// 👇 NUEVOS IMPORTS PARA EL AUTO-RELEVO KAMIKAZE 👇
 import { db } from "./db";
-import { scrapingState } from "../shared/schema";
-import { eq } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
@@ -76,28 +66,6 @@ app.use((req, res, next) => {
     await registerRoutes(httpServer, app);
     console.log("[STARTUP] 2. Rutas registradas correctamente.");
 
-    // === CONFIGURACIÓN DEL CRON JOB ===
-    cron.schedule("0 8 * * *", async () => {
-      log("⏰ [CRON] Iniciando la descarga diaria...", "cron");
-      try {
-        await fetchDailyBOE();
-        log("✅ [CRON] BOE completado.", "cron");
-      } catch (error) { log(`❌ [CRON] Error BOE: ${error}`, "cron"); }
-
-      try {
-        await scrapeBDNS();
-        log("✅ [CRON] BDNS completado.", "cron");
-      } catch (error) { log(`❌ [CRON] Error BDNS: ${error}`, "cron"); }
-
-      try {
-        await fetchTEDGrants();
-        log("✅ [CRON] TED completado.", "cron");
-      } catch (error) { log(`❌ [CRON] Error TED: ${error}`, "cron"); }
-    }, { timezone: "Europe/Madrid" });
-
-    log("📅 Cron job programado para las 08:00 AM (Europe/Madrid).", "cron");
-    // ===================================
-
     app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
       const status = err.status || err.statusCode || 500;
       const message = err.message || "Internal Server Error";
@@ -118,30 +86,9 @@ app.use((req, res, next) => {
     console.log("[STARTUP] 4. Intentando exponer el puerto...");
     const PORT = process.env.PORT || 5000;
 
-    // 👇 AQUÍ ARRANCA EL SERVIDOR Y SE EJECUTA NUESTRA COMPROBACIÓN 👇
     httpServer.listen(Number(PORT), "0.0.0.0", () => {
       console.log(`[STARTUP] ✅ ÉXITO: Servidor escuchando en el puerto ${PORT}`);
       log(`serving on port ${PORT}`);
-
-      // COMPROBACIÓN KAMIKAZE: A los 5 segundos de arrancar, miramos la BD
-      setTimeout(async () => {
-        try {
-          const resumeState = await db.query.scrapingState.findFirst({ 
-            where: eq(scrapingState.key, "kamikaze_resume") 
-          });
-
-          if (resumeState?.value === "true") {
-            console.log("\n🔄 [STARTUP] ¡Nota Kamikaze detectada! El servidor se reinició para evadir el cortafuegos.");
-            console.log("🔄 Retomando el scraping BDNS en 10 segundos para dejar que el sistema respire...\n");
-
-            // Esperamos 10 segundos extra antes de arrancar Chrome para no saturar el servidor recién encendido
-            setTimeout(() => scrapeBDNS(), 10000);
-          }
-        } catch (e) {
-          console.error("❌ Error comprobando estado de Kamikaze:", e);
-        }
-      }, 5000);
-
     });
 
     httpServer.on("error", (err) => {
@@ -150,6 +97,6 @@ app.use((req, res, next) => {
 
   } catch (error) {
     console.error("[STARTUP] ❌ Error FATAL durante el arranque:", error);
-    process.exit(1); // Forzamos el cierre para que Replit registre el error
+    process.exit(1); 
   }
 })();
