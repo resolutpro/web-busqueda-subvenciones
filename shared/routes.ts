@@ -19,6 +19,14 @@ export const errorSchemas = {
 
 export const api = {
   companies: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/companies' as const,
+      responses: {
+        200: z.array(z.custom<typeof companies.$inferSelect>()),
+        401: errorSchemas.unauthorized,
+      },
+    },
     me: {
       method: 'GET' as const,
       path: '/api/companies/me' as const,

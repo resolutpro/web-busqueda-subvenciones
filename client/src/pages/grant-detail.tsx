@@ -130,7 +130,7 @@ export default function GrantDetailPage() {
                       </p>
                     )}
                     
-                    {userMatch.reasons && Array.isArray(userMatch.reasons) && userMatch.reasons.length > 0 && (
+                    {Array.isArray(userMatch.reasons) && userMatch.reasons.length > 0 && (
                       <div className="mb-4">
                         <strong className="block text-sm text-slate-700 mb-2">Motivos a favor:</strong>
                         <ul className="space-y-2">
@@ -144,7 +144,7 @@ export default function GrantDetailPage() {
                       </div>
                     )}
                     
-                    {userMatch.blockers && Array.isArray(userMatch.blockers) && userMatch.blockers.length > 0 && (
+                    {Array.isArray(userMatch.blockers) && userMatch.blockers.length > 0 && (
                       <div>
                         <strong className="block text-sm text-slate-700 mb-2">Posibles frenos:</strong>
                         <ul className="space-y-2">
@@ -165,7 +165,7 @@ export default function GrantDetailPage() {
                     <Building className="h-4 w-4 text-blue-500" />
                     Motivos Generales de la Ayuda
                   </h4>
-                  {grant.relevanceReasons && Array.isArray(grant.relevanceReasons) && grant.relevanceReasons.length > 0 ? (
+                  {Array.isArray(grant.relevanceReasons) && grant.relevanceReasons.length > 0 ? (
                     <ul className="space-y-3">
                       {(grant.relevanceReasons as string[]).map((item, i) => (
                         <li key={i} className="flex items-start gap-3 text-sm text-slate-600 bg-slate-50 p-3 rounded-lg">

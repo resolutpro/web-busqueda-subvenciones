@@ -71,7 +71,18 @@ export async function registerRoutes(
     }
   });
 
-  // 3. Grant Routes
+  // 3. General Companies Route
+  app.get(api.companies.list.path, isAuthenticated, async (_req: any, res) => {
+    try {
+      const allCompanies = await storage.getCompanies();
+      res.json(allCompanies);
+    } catch (error) {
+      console.error("Error fetching all companies:", error);
+      res.status(500).json([]);
+    }
+  });
+
+  // 4. Grant Routes
   app.get(api.grants.list.path, isAuthenticated, async (req: any, res) => {
     try {
       const params = {
@@ -246,6 +257,43 @@ export async function registerRoutes(
 
     } catch (error) {
       console.error("Error in webhook:", error);
+      res.status(500).json({ ok: false, error: "internal_server_error" });
+    }
+  });
+
+  app.post("/api/webhooks/openclaw/companies", isAgentAuthenticated, async (req: any, res: any) => {
+    try {
+      const { items } = req.body;
+
+      if (!items || !Array.isArray(items)) {
+        return res.status(400).json({ ok: false, error: "invalid_payload", details: ["items array is required"] });
+      }
+
+      let processed = 0;
+
+      for (const item of items) {
+        if (!item.slug || !item.displayName) {
+          continue; // Skip invalid
+        }
+
+        await storage.upsertCompanyFromOpenclaw({
+          slug: item.slug,
+          name: item.displayName,
+          cnae: item.cnae || null,
+          location: item.location || null,
+          size: item.size || null,
+          description: item.description || "",
+        });
+        processed++;
+      }
+
+      res.json({
+        ok: true,
+        processed,
+      });
+
+    } catch (error) {
+      console.error("Error in companies webhook:", error);
       res.status(500).json({ ok: false, error: "internal_server_error" });
     }
   });

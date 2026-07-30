@@ -11,6 +11,7 @@ import DashboardPage from "@/pages/dashboard";
 import GrantsListPage from "@/pages/grants-list";
 import GrantDetailPage from "@/pages/grant-detail";
 import CompanyProfilePage from "@/pages/company-profile";
+import CompaniesListPage from "@/pages/companies-list";
 import NotFound from "@/pages/not-found";
 
 
@@ -73,6 +74,10 @@ function Router() {
 
       <Route path="/profile">
         <ProtectedRoute component={CompanyProfilePage} />
+      </Route>
+
+      <Route path="/companies">
+        <ProtectedRoute component={CompaniesListPage} />
       </Route>
 
       {/* Fallback */}

@@ -20,7 +20,6 @@ export * from "./models/auth";
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id")
-    .notNull()
     .references(() => users.id),
   slug: text("slug").unique().notNull(), // Añadido slug para mapeo con OpenClaw
   name: text("name").notNull(),

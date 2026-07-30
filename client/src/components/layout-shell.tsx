@@ -32,7 +32,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const navigation = [
     { name: 'Panel de Control', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Subvenciones', href: '/grants', icon: BookMarked },
-    { name: 'Perfil de Empresa', href: '/profile', icon: Briefcase },
+    { name: 'Empresas', href: '/companies', icon: Building2 },
+    { name: 'Perfil de Empresa (Tuyo)', href: '/profile', icon: Briefcase },
   ];
 
   const handleLogout = () => {

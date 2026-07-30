@@ -16,11 +16,11 @@ export function useCompany() {
   });
 }
 
-export function useCompanies() {
+export function useAllCompanies() {
   return useQuery<Company[]>({
-    queryKey: [api.companies.me.path],
+    queryKey: [api.companies.list.path],
     queryFn: async () => {
-      const res = await fetch(api.companies.me.path, { credentials: "include" });
+      const res = await fetch(api.companies.list.path, { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },

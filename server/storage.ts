@@ -28,6 +28,8 @@ export interface IStorage {
   createCompany(company: InsertCompany & { userId: string }): Promise<Company>;
   updateCompany(id: number, company: Partial<InsertCompany>): Promise<Company>;
   getCompanyBySlug(slug: string): Promise<Company | undefined>;
+  getCompanies(): Promise<Company[]>;
+  upsertCompanyFromOpenclaw(company: InsertCompany): Promise<Company>;
 
   // Grants
   getGrants(params?: {
@@ -102,6 +104,28 @@ export class DatabaseStorage implements IStorage {
   async getCompanyBySlug(slug: string): Promise<Company | undefined> {
     const [company] = await db.select().from(companies).where(eq(companies.slug, slug));
     return company;
+  }
+
+  async getCompanies(): Promise<Company[]> {
+    return await db.select().from(companies).orderBy(desc(companies.createdAt));
+  }
+
+  async upsertCompanyFromOpenclaw(insertCompany: InsertCompany): Promise<Company> {
+    const [upserted] = await db
+      .insert(companies)
+      .values(insertCompany)
+      .onConflictDoUpdate({
+        target: companies.slug,
+        set: {
+          name: insertCompany.name,
+          cnae: insertCompany.cnae,
+          location: insertCompany.location,
+          size: insertCompany.size,
+          description: insertCompany.description,
+        },
+      })
+      .returning();
+    return upserted;
   }
 
   // Grants
