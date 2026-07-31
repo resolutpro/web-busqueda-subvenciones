@@ -82,7 +82,34 @@ export async function registerRoutes(
     }
   });
 
-  // 4. Grant Routes
+  // 4. Grants Routes
+  app.get(api.grants.getScanStatus.path, isAuthenticated, async (req: any, res) => {
+    try {
+      const status = await storage.getScanStatus();
+      if (!status) {
+        return res.json({
+          lastRunAt: null,
+          sources: {
+            boe: { lastCheckedAt: null, lastPublishedDateSeen: null },
+            bdns: { lastCheckedAt: null, lastPublishedDateSeen: null },
+            euFunding: { lastCheckedAt: null, lastPublishedDateSeen: null }
+          }
+        });
+      }
+      return res.json({
+        lastRunAt: status.lastRunAt,
+        sources: {
+          boe: status.boeStatus || { lastCheckedAt: null, lastPublishedDateSeen: null },
+          bdns: status.bdnsStatus || { lastCheckedAt: null, lastPublishedDateSeen: null },
+          euFunding: status.euFundingStatus || { lastCheckedAt: null, lastPublishedDateSeen: null }
+        }
+      });
+    } catch (error) {
+      console.error("Error getting scan status:", error);
+      res.status(500).json({ message: "Error getting scan status" });
+    }
+  });
+
   app.get(api.grants.list.path, isAuthenticated, async (req: any, res) => {
     try {
       const params = {
@@ -142,32 +169,6 @@ export async function registerRoutes(
     }
   });
 
-  app.get(api.grants.getScanStatus.path, isAuthenticated, async (req: any, res) => {
-    try {
-      const status = await storage.getScanStatus();
-      if (!status) {
-        return res.json({
-          lastRunAt: null,
-          sources: {
-            boe: { lastCheckedAt: null, lastPublishedDateSeen: null },
-            bdns: { lastCheckedAt: null, lastPublishedDateSeen: null },
-            euFunding: { lastCheckedAt: null, lastPublishedDateSeen: null }
-          }
-        });
-      }
-      return res.json({
-        lastRunAt: status.lastRunAt,
-        sources: {
-          boe: status.boeStatus || { lastCheckedAt: null, lastPublishedDateSeen: null },
-          bdns: status.bdnsStatus || { lastCheckedAt: null, lastPublishedDateSeen: null },
-          euFunding: status.euFundingStatus || { lastCheckedAt: null, lastPublishedDateSeen: null }
-        }
-      });
-    } catch (error) {
-      console.error("Error getting scan status:", error);
-      res.status(500).json({ message: "Error getting scan status" });
-    }
-  });
 
   // 4. Matches Routes
   app.get(api.matches.list.path, isAuthenticated, async (req: any, res) => {
@@ -374,6 +375,33 @@ export async function registerRoutes(
       res.json({ success: true, ok: true });
     } catch (error) {
       console.error("Error updating scan status:", error);
+      res.status(500).json({ ok: false, error: "internal_server_error" });
+    }
+  });
+
+  app.get("/api/webhooks/openclaw/scan-status", isAgentAuthenticated, async (req: any, res: any) => {
+    try {
+      const status = await storage.getScanStatus();
+      if (!status) {
+        return res.json({
+          lastRunAt: null,
+          sources: {
+            boe: { lastCheckedAt: null, lastPublishedDateSeen: null },
+            bdns: { lastCheckedAt: null, lastPublishedDateSeen: null },
+            euFunding: { lastCheckedAt: null, lastPublishedDateSeen: null }
+          }
+        });
+      }
+      return res.json({
+        lastRunAt: status.lastRunAt,
+        sources: {
+          boe: status.boeStatus || { lastCheckedAt: null, lastPublishedDateSeen: null },
+          bdns: status.bdnsStatus || { lastCheckedAt: null, lastPublishedDateSeen: null },
+          euFunding: status.euFundingStatus || { lastCheckedAt: null, lastPublishedDateSeen: null }
+        }
+      });
+    } catch (error) {
+      console.error("Error getting scan status:", error);
       res.status(500).json({ ok: false, error: "internal_server_error" });
     }
   });
