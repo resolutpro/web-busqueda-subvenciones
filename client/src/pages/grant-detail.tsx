@@ -26,6 +26,7 @@ export default function GrantDetailPage() {
   }
 
   const userMatch = grant.match;
+  const proposal = userMatch?.proposal;
 
   return (
     <LayoutShell>
@@ -45,18 +46,24 @@ export default function GrantDetailPage() {
 
             <div className="flex-1 min-w-0 space-y-4">
               <div>
-                <div className="flex items-center gap-2 text-sm text-slate-500 mb-2">
+                <div className="flex items-center gap-2 text-sm text-slate-500 mb-2 flex-wrap">
                   <Badge variant="outline" className="bg-slate-50">{grant.source.toUpperCase()}</Badge>
+                  {grant.organism && (
+                    <>
+                      <span className="hidden sm:inline">•</span>
+                      <span className="font-medium text-slate-700">{grant.organism}</span>
+                    </>
+                  )}
                   {grant.scope && (
                     <>
-                      <span>•</span>
+                      <span className="hidden sm:inline">•</span>
                       <span>{grant.scope}</span>
                     </>
                   )}
                   {grant.code && (
                     <>
-                      <span>•</span>
-                      <span className="font-mono">{grant.code}</span>
+                      <span className="hidden sm:inline">•</span>
+                      <span className="font-mono bg-slate-100 px-1 rounded">{grant.code}</span>
                     </>
                   )}
                 </div>
@@ -72,12 +79,19 @@ export default function GrantDetailPage() {
                     <span className="font-semibold">
                       {new Date(grant.publishedAt).toLocaleDateString()}
                     </span>
-                    <span className="text-slate-400 ml-1 text-sm">Fecha Publicación</span>
+                    <span className="text-slate-400 ml-1 text-sm">Publicación</span>
                   </div>
                 )}
                 {grant.kind && (
                   <div className="flex items-center text-slate-700">
                     <Badge variant="secondary">{grant.kind}</Badge>
+                  </div>
+                )}
+                {grant.maxIntensity && (
+                  <div className="flex items-center text-slate-700">
+                    <Badge className="bg-emerald-100 text-emerald-800 border-none">
+                      Intensidad: {grant.maxIntensity}
+                    </Badge>
                   </div>
                 )}
               </div>
@@ -99,30 +113,124 @@ export default function GrantDetailPage() {
           </div>
         </div>
 
-        <Tabs defaultValue="ai-summary" className="w-full">
+        <Tabs defaultValue={proposal ? "proposal" : "ai-summary"} className="w-full">
           <TabsList className="bg-white border border-slate-200 p-1 rounded-xl w-full md:w-auto grid grid-cols-2 md:inline-flex h-auto">
+            {proposal && (
+              <TabsTrigger value="proposal" className="py-2.5 rounded-lg data-[state=active]:bg-purple-50 data-[state=active]:text-purple-700">
+                <Sparkles className="h-4 w-4 mr-2" />
+                Propuesta de Proyecto
+              </TabsTrigger>
+            )}
             <TabsTrigger value="ai-summary" className="py-2.5 rounded-lg data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
-              <Sparkles className="h-4 w-4 mr-2" />
-              Análisis OpenClaw
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Análisis de Encaje
             </TabsTrigger>
-            <TabsTrigger value="raw" className="py-2.5 rounded-lg data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
-              Datos Crudos
+            <TabsTrigger value="details" className="py-2.5 rounded-lg data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900">
+              Detalles de Convocatoria
             </TabsTrigger>
           </TabsList>
+
+          {proposal && (
+            <TabsContent value="proposal" className="mt-6 space-y-6">
+              <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm border-t-4 border-t-purple-500">
+                <div className="mb-6">
+                  <Badge className="mb-3 bg-purple-100 text-purple-800 border-none">Estrategia OpenClaw</Badge>
+                  <h3 className="text-2xl font-bold text-slate-900">{proposal.title}</h3>
+                  {proposal.shortSummary && (
+                    <p className="text-lg text-slate-600 mt-2">{proposal.shortSummary}</p>
+                  )}
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-8">
+                  <div className="space-y-6">
+                    {proposal.problemOpportunity && (
+                      <div>
+                        <h4 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                          <AlertCircle className="h-4 w-4 text-purple-500" /> Oportunidad / Problema
+                        </h4>
+                        <p className="text-slate-600 bg-slate-50 p-4 rounded-lg">{proposal.problemOpportunity}</p>
+                      </div>
+                    )}
+                    {proposal.projectIdea && (
+                      <div>
+                        <h4 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                          <Sparkles className="h-4 w-4 text-purple-500" /> Idea de Proyecto
+                        </h4>
+                        <p className="text-slate-600 bg-slate-50 p-4 rounded-lg">{proposal.projectIdea}</p>
+                      </div>
+                    )}
+                    {proposal.estimatedCosts && (
+                      <div>
+                        <h4 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                          <Building className="h-4 w-4 text-purple-500" /> Costes Estimados
+                        </h4>
+                        <p className="text-slate-600 bg-slate-50 p-4 rounded-lg font-mono">{proposal.estimatedCosts}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-6">
+                    {Array.isArray(proposal.actions) && proposal.actions.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                          <CheckCircle className="h-4 w-4 text-purple-500" /> Actuaciones Clave
+                        </h4>
+                        <ul className="space-y-2 bg-slate-50 p-4 rounded-lg">
+                          {(proposal.actions as string[]).map((action, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
+                              <span className="text-purple-500 font-bold mr-1">•</span> {action}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {Array.isArray(proposal.risksQuestions) && proposal.risksQuestions.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                          <AlertCircle className="h-4 w-4 text-amber-500" /> Riesgos y Dudas a Validar
+                        </h4>
+                        <ul className="space-y-2 bg-amber-50 p-4 rounded-lg border border-amber-100">
+                          {(proposal.risksQuestions as string[]).map((risk, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-amber-900">
+                              <span className="text-amber-500 font-bold mr-1">•</span> {risk}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {Array.isArray(proposal.nextSteps) && proposal.nextSteps.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                          <ExternalLink className="h-4 w-4 text-emerald-500" /> Siguientes Pasos
+                        </h4>
+                        <ul className="space-y-2 bg-emerald-50 p-4 rounded-lg border border-emerald-100">
+                          {(proposal.nextSteps as string[]).map((step, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-emerald-900">
+                              <span className="text-emerald-500 font-bold mr-1">{i+1}.</span> {step}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+          )}
 
           <TabsContent value="ai-summary" className="mt-6 space-y-6">
             <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
               <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-blue-600" />
-                Por qué esta ayuda es relevante
+                <CheckCircle className="h-5 w-5 text-blue-600" />
+                Análisis de Encaje de OpenClaw
               </h3>
               
               <div className="grid md:grid-cols-2 gap-8">
                 {userMatch && (
                   <div>
                     <h4 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4 text-emerald-500" />
-                      Encaje con tu Empresa ({userMatch.entitySlug})
+                      <Building className="h-4 w-4 text-emerald-500" />
+                      Encaje con la Empresa ({userMatch.entitySlug})
                     </h4>
                     {userMatch.fitSummary && (
                       <p className="text-slate-600 mb-4 bg-emerald-50 p-4 rounded-lg border border-emerald-100">
@@ -162,7 +270,7 @@ export default function GrantDetailPage() {
                 
                 <div>
                   <h4 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                    <Building className="h-4 w-4 text-blue-500" />
+                    <Sparkles className="h-4 w-4 text-blue-500" />
                     Motivos Generales de la Ayuda
                   </h4>
                   {Array.isArray(grant.relevanceReasons) && grant.relevanceReasons.length > 0 ? (
@@ -175,19 +283,62 @@ export default function GrantDetailPage() {
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-slate-500 text-sm italic">OpenClaw no proporcionó motivos generales adicionales.</p>
+                    <p className="text-slate-500 text-sm italic">No hay motivos generales adicionales.</p>
                   )}
                 </div>
               </div>
             </div>
           </TabsContent>
 
-          <TabsContent value="raw">
-            <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm prose prose-slate max-w-none">
-              <h3 className="text-lg font-bold text-slate-900 mb-4">Payload de OpenClaw</h3>
-              <pre className="bg-slate-900 text-slate-50 p-4 rounded-xl overflow-auto text-sm">
-                {JSON.stringify(grant.rawPayload, null, 2)}
-              </pre>
+          <TabsContent value="details" className="mt-6 space-y-6">
+            <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 className="text-lg font-bold text-slate-900 mb-6">Datos Oficiales de la Convocatoria</h3>
+              
+              <div className="grid md:grid-cols-2 gap-x-8 gap-y-6">
+                {grant.beneficiaryType && (
+                  <div>
+                    <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Tipo de Beneficiario</span>
+                    <p className="text-slate-800">{grant.beneficiaryType}</p>
+                  </div>
+                )}
+                {grant.executionPeriod && (
+                  <div>
+                    <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Periodo de Ejecución</span>
+                    <p className="text-slate-800">{grant.executionPeriod}</p>
+                  </div>
+                )}
+                {Array.isArray(grant.eligibleSectors) && grant.eligibleSectors.length > 0 && (
+                  <div className="md:col-span-2">
+                    <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Sectores Elegibles</span>
+                    <div className="flex flex-wrap gap-2">
+                      {(grant.eligibleSectors as string[]).map((sector, i) => (
+                        <Badge key={i} variant="secondary" className="bg-slate-100 text-slate-700">{sector}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {Array.isArray(grant.eligibleExpenses) && grant.eligibleExpenses.length > 0 && (
+                  <div className="md:col-span-2">
+                    <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Gastos Subvencionables</span>
+                    <ul className="grid sm:grid-cols-2 gap-2">
+                      {(grant.eligibleExpenses as any[]).map((exp, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm text-slate-700 bg-slate-50 p-2 rounded">
+                          <CheckCircle className="h-4 w-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                          {typeof exp === 'string' ? exp : JSON.stringify(exp)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {grant.importantNotes && (
+                  <div className="md:col-span-2 bg-amber-50 p-4 rounded-xl border border-amber-100 mt-4">
+                    <span className="block text-xs font-bold text-amber-800 uppercase tracking-wider mb-1 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4" /> Notas Importantes
+                    </span>
+                    <p className="text-amber-900 text-sm whitespace-pre-wrap">{grant.importantNotes}</p>
+                  </div>
+                )}
+              </div>
             </div>
           </TabsContent>
         </Tabs>

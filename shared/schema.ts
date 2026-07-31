@@ -34,17 +34,25 @@ export const grants = pgTable("grants", {
   id: serial("id").primaryKey(),
   externalKey: text("external_key").unique().notNull(),
   reviewStatus: text("review_status").notNull(), // 'new' o 'updated'
-  source: text("source").notNull(), // 'bdns', 'boe', 'eu-funding'
+  source: text("source").notNull(), // 'bdns', 'boe', 'eu-funding', 'openclaw'
   code: text("code"),
   title: text("title").notNull(),
-  publishedAt: timestamp("published_at"),
-  publicUrl: text("public_url"),
+  organism: text("organism"),
   scope: text("scope"),
+  publishedAt: timestamp("published_at"),
+  importantDates: jsonb("important_dates"), // Array of objects
+  publicUrl: text("public_url"),
+  importantUrls: jsonb("important_urls"), // Array of strings or objects
+  beneficiaryType: text("beneficiary_type"),
+  eligibleSectors: jsonb("eligible_sectors"), // Array of strings
+  maxIntensity: text("max_intensity"),
+  eligibleExpenses: jsonb("eligible_expenses"), // Array of strings or objects
+  executionPeriod: text("execution_period"),
+  importantNotes: text("important_notes"),
   kind: text("kind"),
   relevanceScore: integer("relevance_score"),
   relevanceLabel: text("relevance_label"),
   relevanceReasons: jsonb("relevance_reasons"), // Array de strings
-  rawPayload: jsonb("raw_payload"),
   firstReceivedAt: timestamp("first_received_at").notNull().defaultNow(),
   lastReceivedAt: timestamp("last_received_at").notNull().defaultNow(),
   lastOpenclawRunId: text("last_openclaw_run_id"),
@@ -68,6 +76,25 @@ export const grantMatches = pgTable("grant_matches", {
   reasons: jsonb("reasons"), // Array de motivos
   blockers: jsonb("blockers"),
   fitSummary: text("fit_summary"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const grantMatchProposals = pgTable("grant_match_proposals", {
+  id: serial("id").primaryKey(),
+  grantMatchId: integer("grant_match_id")
+    .notNull()
+    .unique()
+    .references(() => grantMatches.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  shortSummary: text("short_summary"),
+  problemOpportunity: text("problem_opportunity"),
+  projectIdea: text("project_idea"),
+  fitReasoning: text("fit_reasoning"),
+  actions: jsonb("actions"), // Array of strings
+  estimatedCosts: text("estimated_costs"),
+  risksQuestions: jsonb("risks_questions"), // Array of strings
+  nextSteps: jsonb("next_steps"), // Array of strings
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -107,6 +134,17 @@ export const grantMatchesRelations = relations(grantMatches, ({ one }) => ({
     fields: [grantMatches.grantId],
     references: [grants.id],
   }),
+  proposal: one(grantMatchProposals, {
+    fields: [grantMatches.id],
+    references: [grantMatchProposals.grantMatchId],
+  }),
+}));
+
+export const grantMatchProposalsRelations = relations(grantMatchProposals, ({ one }) => ({
+  match: one(grantMatches, {
+    fields: [grantMatchProposals.grantMatchId],
+    references: [grantMatches.id],
+  }),
 }));
 
 // === SCHEMAS ===
@@ -129,6 +167,12 @@ export const insertGrantMatchSchema = createInsertSchema(grantMatches).omit({
   updatedAt: true,
 });
 
+export const insertGrantMatchProposalSchema = createInsertSchema(grantMatchProposals).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({
   id: true,
   receivedAt: true,
@@ -146,10 +190,20 @@ export type InsertGrant = z.infer<typeof insertGrantSchema>;
 export type GrantMatch = typeof grantMatches.$inferSelect;
 export type InsertGrantMatch = z.infer<typeof insertGrantMatchSchema>;
 
+export type GrantMatchProposal = typeof grantMatchProposals.$inferSelect;
+export type InsertGrantMatchProposal = z.infer<typeof insertGrantMatchProposalSchema>;
+
 export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
 export type InsertWebhookDelivery = z.infer<typeof insertWebhookDeliverySchema>;
 
-export type GrantWithMatches = Grant & { matches?: GrantMatch[] };
+// Tipo compuesto que usamos en la API
+export type GrantWithMatches = Grant & { 
+  matches?: (GrantMatch & { 
+    company?: Company | null;
+    proposal?: GrantMatchProposal | null;
+  })[];
+  match?: GrantMatch & { proposal?: GrantMatchProposal | null } | null;
+};
 
 // Request/Response Types
 export type CreateCompanyRequest = InsertCompany;

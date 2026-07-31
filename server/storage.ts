@@ -3,6 +3,7 @@ import {
   companies,
   grants,
   grantMatches,
+  grantMatchProposals,
   webhookDeliveries,
   type User,
   type Company,
@@ -11,6 +12,8 @@ import {
   type InsertGrant,
   type GrantMatch,
   type InsertGrantMatch,
+  type GrantMatchProposal,
+  type InsertGrantMatchProposal,
   type WebhookDelivery,
   type InsertWebhookDelivery,
   type UpsertUser,
@@ -45,7 +48,7 @@ export interface IStorage {
   // Matches
   getMatchesByCompany(companyId: number): Promise<(GrantMatch & { grant: Grant })[]>;
   getMatchesByGrant(grantId: number): Promise<(GrantMatch & { company: Company | null })[]>;
-  replaceGrantMatches(grantId: number, matches: InsertGrantMatch[]): Promise<void>;
+  replaceGrantMatches(grantId: number, matches: Array<InsertGrantMatch & { proposal?: Omit<InsertGrantMatchProposal, 'grantMatchId'> }>): Promise<void>;
 
   // Webhook Deliveries
   logWebhookDelivery(delivery: InsertWebhookDelivery): Promise<void>;
@@ -183,14 +186,22 @@ export class DatabaseStorage implements IStorage {
           source: insertGrant.source,
           code: insertGrant.code,
           title: insertGrant.title,
-          publishedAt: insertGrant.publishedAt,
-          publicUrl: insertGrant.publicUrl,
+          organism: insertGrant.organism,
           scope: insertGrant.scope,
+          publishedAt: insertGrant.publishedAt,
+          importantDates: insertGrant.importantDates,
+          publicUrl: insertGrant.publicUrl,
+          importantUrls: insertGrant.importantUrls,
+          beneficiaryType: insertGrant.beneficiaryType,
+          eligibleSectors: insertGrant.eligibleSectors,
+          maxIntensity: insertGrant.maxIntensity,
+          eligibleExpenses: insertGrant.eligibleExpenses,
+          executionPeriod: insertGrant.executionPeriod,
+          importantNotes: insertGrant.importantNotes,
           kind: insertGrant.kind,
           relevanceScore: insertGrant.relevanceScore,
           relevanceLabel: insertGrant.relevanceLabel,
           relevanceReasons: insertGrant.relevanceReasons,
-          rawPayload: insertGrant.rawPayload,
           lastReceivedAt: insertGrant.lastReceivedAt,
           lastOpenclawRunId: insertGrant.lastOpenclawRunId,
           isUpdated: insertGrant.isUpdated,
@@ -212,21 +223,39 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async getMatchesByGrant(grantId: number): Promise<(GrantMatch & { company: Company | null })[]> {
+  async getMatchesByGrant(grantId: number): Promise<(GrantMatch & { company: Company | null; proposal?: GrantMatchProposal | null })[]> {
     return await db.query.grantMatches.findMany({
       where: eq(grantMatches.grantId, grantId),
       with: {
         company: true,
+        proposal: true,
       },
       orderBy: desc(grantMatches.score),
     });
   }
 
-  async replaceGrantMatches(grantId: number, matches: InsertGrantMatch[]): Promise<void> {
-    await db.delete(grantMatches).where(eq(grantMatches.grantId, grantId));
-    if (matches.length > 0) {
-      await db.insert(grantMatches).values(matches);
-    }
+  async replaceGrantMatches(grantId: number, matches: Array<InsertGrantMatch & { proposal?: Omit<InsertGrantMatchProposal, 'grantMatchId'> }>): Promise<void> {
+    await db.transaction(async (tx) => {
+      // 1. Delete existing matches (cascade will delete proposals)
+      await tx.delete(grantMatches).where(eq(grantMatches.grantId, grantId));
+      
+      // 2. Insert new matches and proposals
+      for (const matchInput of matches) {
+        const { proposal, ...matchData } = matchInput;
+        
+        const [insertedMatch] = await tx.insert(grantMatches)
+          .values(matchData)
+          .returning();
+          
+        if (proposal) {
+          await tx.insert(grantMatchProposals)
+            .values({
+              ...proposal,
+              grantMatchId: insertedMatch.id
+            });
+        }
+      }
+    });
   }
 
   // Webhook Deliveries

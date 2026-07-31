@@ -6,7 +6,7 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
-import { grants, grantMatches, type InsertGrant, type InsertGrantMatch } from "../shared/schema";
+import { grants, grantMatches, type InsertGrant, type InsertGrantMatch, type InsertGrantMatchProposal } from "../shared/schema";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -213,14 +213,22 @@ export async function registerRoutes(
           source: item.source || "openclaw",
           code: item.code || null,
           title: item.title || "Sin título",
-          publishedAt: item.publishedAt ? new Date(item.publishedAt) : null,
-          publicUrl: item.publicUrl || null,
+          organism: item.organism || null,
           scope: item.scope || null,
+          publishedAt: item.publishedAt ? new Date(item.publishedAt) : null,
+          importantDates: item.importantDates || null,
+          publicUrl: item.publicUrl || null,
+          importantUrls: item.importantUrls || null,
+          beneficiaryType: item.beneficiaryType || null,
+          eligibleSectors: item.eligibleSectors || null,
+          maxIntensity: item.maxIntensity || null,
+          eligibleExpenses: item.eligibleExpenses || null,
+          executionPeriod: item.executionPeriod || null,
+          importantNotes: item.importantNotes || null,
           kind: item.kind || null,
           relevanceScore: item.relevanceScore || null,
           relevanceLabel: item.relevanceLabel || null,
           relevanceReasons: item.relevanceReasons || null,
-          rawPayload: item,
           lastReceivedAt: new Date(sentAt || Date.now()),
           lastOpenclawRunId: runId || null,
           isNew: !existingGrant,
@@ -236,10 +244,26 @@ export async function registerRoutes(
         }
 
         if (item.matches && Array.isArray(item.matches)) {
-          const newMatches: InsertGrantMatch[] = [];
+          const newMatches: Array<InsertGrantMatch & { proposal?: Omit<InsertGrantMatchProposal, 'grantMatchId'> }> = [];
+          
           for (const match of item.matches) {
             // Find company by slug
             const company = await storage.getCompanyBySlug(match.entitySlug);
+
+            let proposalInput = undefined;
+            if (match.proposal) {
+              proposalInput = {
+                title: match.proposal.title || "Propuesta de Proyecto",
+                shortSummary: match.proposal.shortSummary || null,
+                problemOpportunity: match.proposal.problemOpportunity || null,
+                projectIdea: match.proposal.projectIdea || null,
+                fitReasoning: match.proposal.fitReasoning || null,
+                actions: match.proposal.actions || null,
+                estimatedCosts: match.proposal.estimatedCosts || null,
+                risksQuestions: match.proposal.risksQuestions || null,
+                nextSteps: match.proposal.nextSteps || null,
+              };
+            }
 
             newMatches.push({
               grantId: upsertedGrant.id,
@@ -251,6 +275,7 @@ export async function registerRoutes(
               reasons: match.reasons || null,
               blockers: match.blockers || null,
               fitSummary: match.fitSummary || null,
+              proposal: proposalInput,
             });
           }
           await storage.replaceGrantMatches(upsertedGrant.id, newMatches);

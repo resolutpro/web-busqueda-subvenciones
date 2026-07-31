@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertCompanySchema, insertGrantSchema, companies, grants, grantMatches, insertGrantMatchSchema } from './schema';
+import { insertCompanySchema, insertGrantSchema, companies, grants, grantMatches, insertGrantMatchSchema, type GrantWithMatches } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -68,7 +68,7 @@ export const api = {
         reviewStatus: z.string().optional(),
       }).optional(),
       responses: {
-        200: z.array(z.custom<typeof grants.$inferSelect & { match?: typeof grantMatches.$inferSelect }>()),
+        200: z.array(z.custom<GrantWithMatches>()),
         401: errorSchemas.unauthorized,
       },
     },
@@ -76,7 +76,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/grants/:id' as const,
       responses: {
-        200: z.custom<typeof grants.$inferSelect & { match?: typeof grantMatches.$inferSelect }>(),
+        200: z.custom<GrantWithMatches>(),
         404: errorSchemas.notFound,
         401: errorSchemas.unauthorized,
       },
