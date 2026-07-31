@@ -160,7 +160,8 @@ export async function registerRoutes(
     next();
   };
 
-  app.post("/api/webhooks/openclaw", isAgentAuthenticated, async (req: any, res: any) => {
+  // Aceptamos ambas rutas para que el agente tenga flexibilidad
+  const openclawGrantsHandler = async (req: any, res: any) => {
     try {
       const { source, sentAt, runId, deliveryType, items } = req.body;
 
@@ -182,14 +183,18 @@ export async function registerRoutes(
       let updated = 0;
 
       for (const item of items) {
-        if (!item.externalKey) {
+        // Soporte para distintos formatos del agente (key, fingerprint, externalKey)
+        const finalKey = item.externalKey || item.key || item.fingerprint;
+
+        if (!finalKey) {
+          console.warn("Webhook OpenClaw: Item saltado por no tener key/externalKey/fingerprint", item);
           continue; // Skip invalid
         }
 
-        const existingGrant = await storage.getGrantByExternalKey(item.externalKey);
+        const existingGrant = await storage.getGrantByExternalKey(finalKey);
 
         const insertGrantData: InsertGrant = {
-          externalKey: item.externalKey,
+          externalKey: finalKey,
           reviewStatus: item.reviewStatus || (existingGrant ? "updated" : "new"),
           source: item.source || "openclaw",
           code: item.code || null,
@@ -252,7 +257,10 @@ export async function registerRoutes(
       console.error("Error in webhook:", error);
       res.status(500).json({ ok: false, error: "internal_server_error" });
     }
-  });
+  };
+
+  app.post("/api/webhooks/openclaw", isAgentAuthenticated, openclawGrantsHandler);
+  app.post("/api/webhooks/openclaw/grants", isAgentAuthenticated, openclawGrantsHandler);
 
   app.post("/api/webhooks/openclaw/companies", isAgentAuthenticated, async (req: any, res: any) => {
     try {
