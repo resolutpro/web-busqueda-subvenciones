@@ -128,6 +128,20 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  app.delete(api.grants.delete.path, isAuthenticated, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const grant = await storage.getGrant(id);
+      if (!grant) return res.status(404).json({ message: "Grant not found" });
+
+      await storage.deleteGrant(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting grant:", error);
+      res.status(500).json({ message: "Error deleting grant" });
+    }
+  });
+
   // 4. Matches Routes
   app.get(api.matches.list.path, isAuthenticated, async (req: any, res) => {
     const userId = req.user.id;

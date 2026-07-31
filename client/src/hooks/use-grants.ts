@@ -65,3 +65,35 @@ export function useCreateGrant() {
     },
   });
 }
+
+export function useDeleteGrant() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const url = buildUrl(api.grants.delete.path, { id });
+      const res = await fetch(url, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!res.ok) throw new Error("Failed to delete grant");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.grants.list.path] });
+      toast({
+        title: "Subvención eliminada",
+        description: "La subvención ha sido eliminada correctamente.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "No se pudo eliminar la subvención.",
+        variant: "destructive",
+      });
+    }
+  });
+}

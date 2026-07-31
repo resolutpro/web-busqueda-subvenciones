@@ -19,9 +19,12 @@ import {
   Building,
   ChevronRight,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  Trash2
 } from "lucide-react";
 import { MatchScoreBadge } from "@/components/match-score-badge";
+import { useDeleteGrant } from "@/hooks/use-grants";
+import { Button } from "@/components/ui/button";
 
 export default function GrantsListPage() {
   const [search, setSearch] = useState("");
@@ -33,6 +36,8 @@ export default function GrantsListPage() {
     source: source === "all" ? undefined : source,
     reviewStatus: reviewStatus === "all" ? undefined : reviewStatus,
   });
+
+  const deleteGrantMutation = useDeleteGrant();
 
   return (
     <LayoutShell>
@@ -168,7 +173,23 @@ export default function GrantsListPage() {
                             )}
                           </div>
                         </div>
-                        <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-blue-500 transition-colors hidden sm:block mt-6" />
+                        <div className="flex flex-col items-end gap-2 mt-2 sm:mt-0">
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50 z-10"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              if (confirm("¿Estás seguro de que deseas eliminar esta subvención?")) {
+                                deleteGrantMutation.mutate(grant.id);
+                              }
+                            }}
+                            disabled={deleteGrantMutation.isPending}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                          <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-blue-500 transition-colors hidden sm:block" />
+                        </div>
                       </div>
 
                       {grant.match?.fitSummary && (

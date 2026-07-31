@@ -40,6 +40,7 @@ export interface IStorage {
   getGrant(id: number): Promise<Grant | undefined>;
   getGrantByExternalKey(externalKey: string): Promise<Grant | undefined>;
   upsertGrantFromOpenclaw(grant: InsertGrant): Promise<Grant>;
+  deleteGrant(id: number): Promise<void>;
 
   // Matches
   getMatchesByCompany(companyId: number): Promise<(GrantMatch & { grant: Grant })[]>;
@@ -165,6 +166,10 @@ export class DatabaseStorage implements IStorage {
   async getGrantByExternalKey(externalKey: string): Promise<Grant | undefined> {
     const [grant] = await db.select().from(grants).where(eq(grants.externalKey, externalKey));
     return grant;
+  }
+
+  async deleteGrant(id: number): Promise<void> {
+    await db.delete(grants).where(eq(grants.id, id));
   }
 
   async upsertGrantFromOpenclaw(insertGrant: InsertGrant): Promise<Grant> {
