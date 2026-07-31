@@ -111,6 +111,15 @@ export const webhookDeliveries = pgTable("webhook_deliveries", {
   notes: text("notes"),
 });
 
+export const scanStatus = pgTable("scan_status", {
+  id: integer("id").primaryKey(), // We will only use id=1
+  lastRunAt: timestamp("last_run_at"),
+  boeStatus: jsonb("boe_status"), // { lastCheckedAt, lastPublishedDateSeen }
+  bdnsStatus: jsonb("bdns_status"), 
+  euFundingStatus: jsonb("eu_funding_status"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // === RELATIONS ===
 
 export const companiesRelations = relations(companies, ({ one, many }) => ({
@@ -178,6 +187,10 @@ export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries)
   receivedAt: true,
 });
 
+export const insertScanStatusSchema = createInsertSchema(scanStatus).omit({
+  id: true,
+  updatedAt: true,
+});
 
 // === TYPES ===
 
@@ -195,6 +208,9 @@ export type InsertGrantMatchProposal = z.infer<typeof insertGrantMatchProposalSc
 
 export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
 export type InsertWebhookDelivery = z.infer<typeof insertWebhookDeliverySchema>;
+
+export type ScanStatus = typeof scanStatus.$inferSelect;
+export type InsertScanStatus = z.infer<typeof insertScanStatusSchema>;
 
 // Tipo compuesto que usamos en la API
 export type GrantWithMatches = Grant & { 

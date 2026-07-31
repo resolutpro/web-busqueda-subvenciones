@@ -98,6 +98,23 @@ export const api = {
         401: errorSchemas.unauthorized,
       }
     },
+    getScanStatus: {
+      method: 'GET' as const,
+      path: '/api/grants/scan-status' as const,
+      responses: {
+        200: z.any(), // We will return the exact JSON requested by the user
+        401: errorSchemas.unauthorized,
+      }
+    },
+    updateScanStatus: {
+      method: 'POST' as const,
+      path: '/api/webhooks/openclaw/scan-status' as const,
+      input: z.any(), // Flexible input for the agent
+      responses: {
+        200: z.object({ success: z.boolean() }),
+        401: errorSchemas.unauthorized,
+      }
+    },
     // Admin only - theoretically
     create: {
       method: 'POST' as const,

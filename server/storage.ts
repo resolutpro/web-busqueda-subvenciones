@@ -4,6 +4,7 @@ import {
   grants,
   grantMatches,
   grantMatchProposals,
+  scanStatus,
   webhookDeliveries,
   type User,
   type Company,
@@ -14,6 +15,8 @@ import {
   type InsertGrantMatch,
   type GrantMatchProposal,
   type InsertGrantMatchProposal,
+  type ScanStatus,
+  type InsertScanStatus,
   type WebhookDelivery,
   type InsertWebhookDelivery,
   type UpsertUser,
@@ -53,6 +56,10 @@ export interface IStorage {
 
   // Webhook Deliveries
   logWebhookDelivery(delivery: InsertWebhookDelivery): Promise<void>;
+
+  // Scan Status
+  getScanStatus(): Promise<ScanStatus | undefined>;
+  updateScanStatus(status: Omit<InsertScanStatus, 'id'>): Promise<ScanStatus>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -266,6 +273,27 @@ export class DatabaseStorage implements IStorage {
   // Webhook Deliveries
   async logWebhookDelivery(delivery: InsertWebhookDelivery): Promise<void> {
     await db.insert(webhookDeliveries).values(delivery);
+  }
+
+  // Scan Status
+  async getScanStatus(): Promise<ScanStatus | undefined> {
+    const [status] = await db.select().from(scanStatus).where(eq(scanStatus.id, 1));
+    return status;
+  }
+
+  async updateScanStatus(statusInput: Omit<InsertScanStatus, 'id'>): Promise<ScanStatus> {
+    const [status] = await db
+      .insert(scanStatus)
+      .values({ id: 1, ...statusInput })
+      .onConflictDoUpdate({
+        target: scanStatus.id,
+        set: {
+          ...statusInput,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return status;
   }
 }
 

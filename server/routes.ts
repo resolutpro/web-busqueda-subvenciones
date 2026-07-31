@@ -142,6 +142,33 @@ export async function registerRoutes(
     }
   });
 
+  app.get(api.grants.getScanStatus.path, isAuthenticated, async (req: any, res) => {
+    try {
+      const status = await storage.getScanStatus();
+      if (!status) {
+        return res.json({
+          lastRunAt: null,
+          sources: {
+            boe: { lastCheckedAt: null, lastPublishedDateSeen: null },
+            bdns: { lastCheckedAt: null, lastPublishedDateSeen: null },
+            euFunding: { lastCheckedAt: null, lastPublishedDateSeen: null }
+          }
+        });
+      }
+      return res.json({
+        lastRunAt: status.lastRunAt,
+        sources: {
+          boe: status.boeStatus || { lastCheckedAt: null, lastPublishedDateSeen: null },
+          bdns: status.bdnsStatus || { lastCheckedAt: null, lastPublishedDateSeen: null },
+          euFunding: status.euFundingStatus || { lastCheckedAt: null, lastPublishedDateSeen: null }
+        }
+      });
+    } catch (error) {
+      console.error("Error getting scan status:", error);
+      res.status(500).json({ message: "Error getting scan status" });
+    }
+  });
+
   // 4. Matches Routes
   app.get(api.matches.list.path, isAuthenticated, async (req: any, res) => {
     const userId = req.user.id;
@@ -324,6 +351,29 @@ export async function registerRoutes(
       res.json({ success: true, ok: true });
     } catch (error) {
       console.error("Error clearing grants:", error);
+      res.status(500).json({ ok: false, error: "internal_server_error" });
+    }
+  });
+
+  app.post("/api/webhooks/openclaw/scan-status", isAgentAuthenticated, async (req: any, res: any) => {
+    try {
+      const { lastRunAt, sources } = req.body;
+      const parseDate = (d: any) => {
+        if (!d) return null;
+        const parsed = new Date(d);
+        return isNaN(parsed.getTime()) ? null : parsed;
+      };
+
+      await storage.updateScanStatus({
+        lastRunAt: parseDate(lastRunAt),
+        boeStatus: sources?.boe || null,
+        bdnsStatus: sources?.bdns || null,
+        euFundingStatus: sources?.euFunding || null,
+      });
+
+      res.json({ success: true, ok: true });
+    } catch (error) {
+      console.error("Error updating scan status:", error);
       res.status(500).json({ ok: false, error: "internal_server_error" });
     }
   });

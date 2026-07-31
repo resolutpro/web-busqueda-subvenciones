@@ -97,3 +97,17 @@ export function useDeleteGrant() {
     }
   });
 }
+
+export function useScanStatus() {
+  return useQuery({
+    queryKey: [api.grants.getScanStatus.path],
+    queryFn: async () => {
+      const url = buildUrl(api.grants.getScanStatus.path, {});
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch scan status");
+      return res.json();
+    },
+    // We can refetch this every minute to keep the dashboard fresh
+    refetchInterval: 60000,
+  });
+}
