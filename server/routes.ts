@@ -94,17 +94,14 @@ export async function registerRoutes(
       const grantsList = await storage.getGrants(params);
       const results = [];
 
-      // We attach the top match for each grant based on user companies
-      const userId = req.user.id;
-      const userCompanies = await storage.getCompaniesByUserId(userId);
-      const companyIds = userCompanies.map(c => c.id);
-
       for (const grant of grantsList) {
         const grantMatchesList = await storage.getMatchesByGrant(grant.id);
-        const userMatch = grantMatchesList.find(m => m.companyId && companyIds.includes(m.companyId));
+        // Opción A: Mostrar el mejor match global, ignorando a qué usuario pertenece la empresa
+        const bestMatch = grantMatchesList.length > 0 ? grantMatchesList[0] : null;
+        
         results.push({
           ...grant,
-          match: userMatch || null,
+          match: bestMatch,
         });
       }
 
@@ -119,17 +116,13 @@ export async function registerRoutes(
     const grant = await storage.getGrant(id);
     if (!grant) return res.status(404).json({ message: "Grant not found" });
 
-    const userId = req.user.id;
-    const userCompanies = await storage.getCompaniesByUserId(userId);
-    const companyIds = userCompanies.map(c => c.id);
-
     const grantMatchesList = await storage.getMatchesByGrant(grant.id);
-    const userMatch = grantMatchesList.find(m => m.companyId && companyIds.includes(m.companyId));
+    const bestMatch = grantMatchesList.length > 0 ? grantMatchesList[0] : null;
 
     const result = {
       ...grant,
-      matches: grantMatchesList, // Enviamos todos los matches o solo los de la empresa? Por ahora los de la empresa.
-      match: userMatch || null
+      matches: grantMatchesList, // Enviamos todos los matches
+      match: bestMatch
     };
 
     res.json(result);
