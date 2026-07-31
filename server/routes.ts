@@ -207,30 +207,48 @@ export async function registerRoutes(
 
         const existingGrant = await storage.getGrantByExternalKey(finalKey);
 
+        // Helpers para sanear el payload antes de Drizzle
+        const parseDate = (d: any) => {
+          if (!d) return null;
+          const parsed = new Date(d);
+          return isNaN(parsed.getTime()) ? null : parsed;
+        };
+        const parseJsonb = (val: any) => {
+          if (val === null || val === undefined) return null;
+          if (typeof val === "string") {
+            try {
+              return JSON.parse(val);
+            } catch (e) {
+              return [val]; // Wrap as array if it fails JSON parse
+            }
+          }
+          return val;
+        };
+
         const insertGrantData: InsertGrant = {
           externalKey: finalKey,
-          reviewStatus: item.reviewStatus || (existingGrant ? "updated" : "new"),
-          source: item.source || "openclaw",
-          code: item.code || null,
-          title: item.title || "Sin título",
-          organism: item.organism || null,
-          scope: item.scope || null,
-          publishedAt: item.publishedAt ? new Date(item.publishedAt) : null,
-          importantDates: item.importantDates || null,
-          publicUrl: item.publicUrl || null,
-          importantUrls: item.importantUrls || null,
-          beneficiaryType: item.beneficiaryType || null,
-          eligibleSectors: item.eligibleSectors || null,
-          maxIntensity: item.maxIntensity || null,
-          eligibleExpenses: item.eligibleExpenses || null,
-          executionPeriod: item.executionPeriod || null,
-          importantNotes: item.importantNotes || null,
-          kind: item.kind || null,
-          relevanceScore: item.relevanceScore || null,
-          relevanceLabel: item.relevanceLabel || null,
-          relevanceReasons: item.relevanceReasons || null,
+          reviewStatus: item.reviewStatus ? String(item.reviewStatus) : (existingGrant ? "updated" : "new"),
+          source: item.source ? String(item.source) : "openclaw",
+          code: item.code ? String(item.code) : null,
+          title: item.title ? String(item.title) : "Sin título",
+          organism: item.organism ? String(item.organism) : null,
+          scope: item.scope ? String(item.scope) : null,
+          publishedAt: parseDate(item.publishedAt),
+          importantDates: parseJsonb(item.importantDates),
+          publicUrl: item.publicUrl ? String(item.publicUrl) : null,
+          importantUrls: parseJsonb(item.importantUrls),
+          beneficiaryType: item.beneficiaryType ? String(item.beneficiaryType) : null,
+          eligibleSectors: parseJsonb(item.eligibleSectors),
+          maxIntensity: item.maxIntensity !== null && item.maxIntensity !== undefined ? String(item.maxIntensity) : null,
+          eligibleExpenses: parseJsonb(item.eligibleExpenses),
+          executionPeriod: item.executionPeriod ? String(item.executionPeriod) : null,
+          importantNotes: item.importantNotes ? String(item.importantNotes) : null,
+          kind: item.kind ? String(item.kind) : null,
+          relevanceScore: item.relevanceScore !== undefined && item.relevanceScore !== null ? Number(item.relevanceScore) : null,
+          relevanceLabel: item.relevanceLabel ? String(item.relevanceLabel) : null,
+          relevanceReasons: parseJsonb(item.relevanceReasons),
           lastReceivedAt: new Date(sentAt || Date.now()),
-          lastOpenclawRunId: runId || null,
+          lastOpenclawRunId: runId ? String(runId) : null,
           isNew: !existingGrant,
           isUpdated: !!existingGrant,
         };
@@ -253,28 +271,28 @@ export async function registerRoutes(
             let proposalInput = undefined;
             if (match.proposal) {
               proposalInput = {
-                title: match.proposal.title || "Propuesta de Proyecto",
-                shortSummary: match.proposal.shortSummary || null,
-                problemOpportunity: match.proposal.problemOpportunity || null,
-                projectIdea: match.proposal.projectIdea || null,
-                fitReasoning: match.proposal.fitReasoning || null,
-                actions: match.proposal.actions || null,
-                estimatedCosts: match.proposal.estimatedCosts || null,
-                risksQuestions: match.proposal.risksQuestions || null,
-                nextSteps: match.proposal.nextSteps || null,
+                title: match.proposal.title ? String(match.proposal.title) : "Propuesta de Proyecto",
+                shortSummary: match.proposal.shortSummary ? String(match.proposal.shortSummary) : null,
+                problemOpportunity: match.proposal.problemOpportunity ? String(match.proposal.problemOpportunity) : null,
+                projectIdea: match.proposal.projectIdea ? String(match.proposal.projectIdea) : null,
+                fitReasoning: match.proposal.fitReasoning ? String(match.proposal.fitReasoning) : null,
+                actions: parseJsonb(match.proposal.actions),
+                estimatedCosts: match.proposal.estimatedCosts ? String(match.proposal.estimatedCosts) : null,
+                risksQuestions: parseJsonb(match.proposal.risksQuestions),
+                nextSteps: parseJsonb(match.proposal.nextSteps),
               };
             }
 
             newMatches.push({
               grantId: upsertedGrant.id,
               companyId: company ? company.id : null,
-              entitySlug: match.entitySlug,
-              displayName: match.displayName || null,
-              score: match.score || null,
-              label: match.label || null,
-              reasons: match.reasons || null,
-              blockers: match.blockers || null,
-              fitSummary: match.fitSummary || null,
+              entitySlug: String(match.entitySlug),
+              displayName: match.displayName ? String(match.displayName) : null,
+              score: match.score !== undefined && match.score !== null ? Number(match.score) : null,
+              label: match.label ? String(match.label) : null,
+              reasons: parseJsonb(match.reasons),
+              blockers: parseJsonb(match.blockers),
+              fitSummary: match.fitSummary ? String(match.fitSummary) : null,
               proposal: proposalInput,
             });
           }
@@ -300,6 +318,15 @@ export async function registerRoutes(
 
   app.post("/api/webhooks/openclaw", isAgentAuthenticated, openclawGrantsHandler);
   app.post("/api/webhooks/openclaw/grants", isAgentAuthenticated, openclawGrantsHandler);
+  app.delete("/api/webhooks/openclaw/grants/clear", isAgentAuthenticated, async (req: any, res: any) => {
+    try {
+      await storage.deleteAllGrants();
+      res.json({ success: true, ok: true });
+    } catch (error) {
+      console.error("Error clearing grants:", error);
+      res.status(500).json({ ok: false, error: "internal_server_error" });
+    }
+  });
 
   app.post("/api/webhooks/openclaw/companies", isAgentAuthenticated, async (req: any, res: any) => {
     try {

@@ -90,6 +90,14 @@ export const api = {
         404: errorSchemas.notFound,
       }
     },
+    clear: {
+      method: 'DELETE' as const,
+      path: '/api/webhooks/openclaw/grants/clear' as const,
+      responses: {
+        200: z.object({ success: z.boolean() }),
+        401: errorSchemas.unauthorized,
+      }
+    },
     // Admin only - theoretically
     create: {
       method: 'POST' as const,
