@@ -26,7 +26,8 @@ export default function GrantDetailPage() {
   }
 
   const userMatch = grant.match;
-  const proposal = userMatch?.proposal;
+  const rawPayload = grant.rawPayload as any;
+  const proposal = userMatch?.proposal || rawPayload?.proposal;
 
   return (
     <LayoutShell>
@@ -226,6 +227,31 @@ export default function GrantDetailPage() {
               </h3>
               
               <div className="grid md:grid-cols-2 gap-8">
+                {rawPayload?.llmSummary && (
+                  <div className="md:col-span-2 p-4 bg-blue-50 border border-blue-100 rounded-lg text-slate-800">
+                    <strong className="block mb-1 text-blue-900">Resumen Global LLM:</strong>
+                    <p>{rawPayload.llmSummary}</p>
+                  </div>
+                )}
+                
+                {rawPayload?.publishRecommendation && (
+                  <div className="md:col-span-2 p-4 bg-purple-50 border border-purple-100 rounded-lg text-slate-800">
+                    <strong className="block mb-1 text-purple-900">Recomendación de Publicación:</strong>
+                    <p>{rawPayload.publishRecommendation}</p>
+                  </div>
+                )}
+                
+                {Array.isArray(rawPayload?.globalBlockers) && rawPayload.globalBlockers.length > 0 && (
+                  <div className="md:col-span-2 p-4 bg-amber-50 border border-amber-100 rounded-lg text-slate-800">
+                    <strong className="block mb-2 flex items-center gap-2 text-amber-900">
+                      <AlertCircle className="h-4 w-4" /> Blockers Globales:
+                    </strong>
+                    <ul className="list-disc pl-5 space-y-1">
+                      {rawPayload.globalBlockers.map((b: string, i: number) => <li key={i}>{b}</li>)}
+                    </ul>
+                  </div>
+                )}
+
                 {userMatch && (
                   <div>
                     <h4 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
@@ -287,6 +313,25 @@ export default function GrantDetailPage() {
                   )}
                 </div>
               </div>
+
+              {rawPayload?.matches && Array.isArray(rawPayload.matches) && rawPayload.matches.length > 0 && (
+                <div className="mt-8 pt-8 border-t border-slate-100">
+                   <h4 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                     <Building className="h-4 w-4 text-slate-500" /> Otras empresas candidatas
+                   </h4>
+                   <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                     {rawPayload.matches.map((m: any, i: number) => (
+                       <div key={i} className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                         <div className="flex justify-between items-start mb-2">
+                           <span className="font-bold text-slate-800">{m.matchedEntityName || m.entitySlug}</span>
+                           <Badge variant="outline" className={m.score > 70 ? "text-emerald-700 bg-emerald-50" : ""}>{m.score}/100</Badge>
+                         </div>
+                         <p className="text-sm text-slate-600 line-clamp-3">{m.fitSummary || m.label}</p>
+                       </div>
+                     ))}
+                   </div>
+                </div>
+              )}
             </div>
           </TabsContent>
 
@@ -330,12 +375,26 @@ export default function GrantDetailPage() {
                     </ul>
                   </div>
                 )}
+                {rawPayload?.grantDetails?.budget && (
+                  <div>
+                    <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Presupuesto</span>
+                    <p className="text-slate-800 font-mono font-medium">{rawPayload.grantDetails.budget}</p>
+                  </div>
+                )}
                 {grant.importantNotes && (
                   <div className="md:col-span-2 bg-amber-50 p-4 rounded-xl border border-amber-100 mt-4">
                     <span className="block text-xs font-bold text-amber-800 uppercase tracking-wider mb-1 flex items-center gap-2">
                       <AlertCircle className="h-4 w-4" /> Notas Importantes
                     </span>
                     <p className="text-amber-900 text-sm whitespace-pre-wrap">{grant.importantNotes}</p>
+                  </div>
+                )}
+                {rawPayload?.grantDetails?.sourceDetails && (
+                  <div className="md:col-span-2 mt-2">
+                    <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Detalles de la Fuente</span>
+                    <div className="text-slate-700 bg-slate-50 p-4 rounded-lg text-sm border border-slate-100 whitespace-pre-wrap font-mono">
+                      {typeof rawPayload.grantDetails.sourceDetails === 'string' ? rawPayload.grantDetails.sourceDetails : JSON.stringify(rawPayload.grantDetails.sourceDetails, null, 2)}
+                    </div>
                   </div>
                 )}
               </div>

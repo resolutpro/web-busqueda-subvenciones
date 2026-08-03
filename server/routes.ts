@@ -256,27 +256,28 @@ export async function registerRoutes(
         const insertGrantData: InsertGrant = {
           externalKey: finalKey,
           reviewStatus: item.reviewStatus ? String(item.reviewStatus) : (existingGrant ? "updated" : "new"),
-          source: item.source ? String(item.source) : "openclaw",
+          source: item.source || item.grantDetails?.sourceDetails || "openclaw",
           code: item.code ? String(item.code) : null,
-          title: item.title ? String(item.title) : "Sin título",
+          title: item.title || item.grantDetails?.title || "Sin título",
           organism: item.organism ? String(item.organism) : null,
           scope: item.scope ? String(item.scope) : null,
-          publishedAt: parseDate(item.publishedAt),
+          publishedAt: parseDate(item.publishedAt || item.grantDetails?.publishedAt),
           importantDates: parseJsonb(item.importantDates),
-          publicUrl: item.publicUrl ? String(item.publicUrl) : null,
+          publicUrl: item.publicUrl || item.grantDetails?.publicUrl || null,
           importantUrls: parseJsonb(item.importantUrls),
           beneficiaryType: item.beneficiaryType ? String(item.beneficiaryType) : null,
           eligibleSectors: parseJsonb(item.eligibleSectors),
           maxIntensity: item.maxIntensity !== null && item.maxIntensity !== undefined ? String(item.maxIntensity) : null,
           eligibleExpenses: parseJsonb(item.eligibleExpenses),
-          executionPeriod: item.executionPeriod ? String(item.executionPeriod) : null,
-          importantNotes: item.importantNotes ? String(item.importantNotes) : null,
+          executionPeriod: item.executionPeriod || item.grantDetails?.deadlineDate || null,
+          importantNotes: item.importantNotes || item.grantDetails?.budget || null,
           kind: item.kind ? String(item.kind) : null,
           relevanceScore: item.relevanceScore !== undefined && item.relevanceScore !== null ? Number(item.relevanceScore) : null,
           relevanceLabel: item.relevanceLabel ? String(item.relevanceLabel) : null,
           relevanceReasons: parseJsonb(item.relevanceReasons),
           lastReceivedAt: new Date(sentAt || Date.now()),
           lastOpenclawRunId: runId ? String(runId) : null,
+          rawPayload: item,
           isNew: !existingGrant,
           isUpdated: !!existingGrant,
         };
@@ -289,10 +290,27 @@ export async function registerRoutes(
           updated++;
         }
 
+        let matchesToProcess = [];
         if (item.matches && Array.isArray(item.matches)) {
+          matchesToProcess = item.matches;
+        } else if (item.primaryMatch) {
+          const entitySlug = item.matchedEntitySlug || (item.matchedEntityName ? item.matchedEntityName.toLowerCase().replace(/[^a-z0-9]+/g, '-') : "unknown");
+          matchesToProcess = [{
+            entitySlug,
+            displayName: item.matchedEntityName,
+            score: item.primaryMatch.score,
+            label: item.primaryMatch.label,
+            reasons: item.primaryMatch.reasons,
+            blockers: item.primaryMatch.blockers,
+            fitSummary: item.primaryMatch.fitSummary,
+            proposal: item.proposal
+          }];
+        }
+
+        if (matchesToProcess.length > 0) {
           const newMatches: Array<InsertGrantMatch & { proposal?: Omit<InsertGrantMatchProposal, 'grantMatchId'> }> = [];
           
-          for (const match of item.matches) {
+          for (const match of matchesToProcess) {
             // Find company by slug
             const company = await storage.getCompanyBySlug(match.entitySlug);
 

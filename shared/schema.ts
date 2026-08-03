@@ -56,6 +56,7 @@ export const grants = pgTable("grants", {
   firstReceivedAt: timestamp("first_received_at").notNull().defaultNow(),
   lastReceivedAt: timestamp("last_received_at").notNull().defaultNow(),
   lastOpenclawRunId: text("last_openclaw_run_id"),
+  rawPayload: jsonb("raw_payload"),
   isNew: boolean("is_new").notNull().default(false),
   isUpdated: boolean("is_updated").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
