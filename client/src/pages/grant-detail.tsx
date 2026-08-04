@@ -27,7 +27,28 @@ export default function GrantDetailPage() {
 
   const userMatch = grant.match;
   const rawPayload = grant.rawPayload as any;
-  const proposal = userMatch?.proposal || rawPayload?.proposal;
+  
+  let proposal = userMatch?.proposal || rawPayload?.proposal || rawPayload?.match?.proposal || rawPayload?.primaryMatch?.proposal;
+  
+  if (!proposal && (rawPayload?.projectIdea || rawPayload?.proposalTitle || rawPayload?.proposalShortSummary || rawPayload?.proposalActions)) {
+    proposal = {
+      title: rawPayload.proposalTitle || "Propuesta de Proyecto",
+      shortSummary: rawPayload.proposalShortSummary,
+      projectIdea: rawPayload.projectIdea,
+      fitReasoning: rawPayload.proposalFitReasoning,
+      estimatedCosts: rawPayload.proposalEstimatedCosts,
+      actions: rawPayload.proposalActions,
+      nextSteps: rawPayload.proposalNextSteps,
+      risksQuestions: rawPayload.proposalRisksQuestions,
+    };
+  } else if (proposal && rawPayload?.projectIdea && !proposal.projectIdea) {
+    proposal = { ...proposal, projectIdea: rawPayload.projectIdea };
+  }
+  
+  // Ensure proposal has keys to show
+  if (proposal && !Object.values(proposal).some(v => v)) {
+    proposal = null;
+  }
 
   return (
     <LayoutShell>
@@ -383,17 +404,76 @@ export default function GrantDetailPage() {
                 )}
                 {grant.importantNotes && (
                   <div className="md:col-span-2 bg-amber-50 p-4 rounded-xl border border-amber-100 mt-4">
-                    <span className="block text-xs font-bold text-amber-800 uppercase tracking-wider mb-1 flex items-center gap-2">
+                    <span className="block text-xs font-bold text-amber-800 uppercase tracking-wider mb-2 flex items-center gap-2">
                       <AlertCircle className="h-4 w-4" /> Notas Importantes
                     </span>
-                    <p className="text-amber-900 text-sm whitespace-pre-wrap">{grant.importantNotes}</p>
+                    <ul className="space-y-2">
+                      {grant.importantNotes.split('\n').filter((n: string) => n.trim()).map((note: string, i: number) => (
+                        <li key={i} className="text-amber-900 text-sm flex items-start gap-2">
+                          <span className="text-amber-500 mt-0.5 font-bold">•</span>
+                          <span>{note.trim()}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
-                {rawPayload?.grantDetails?.sourceDetails && (
-                  <div className="md:col-span-2 mt-2">
-                    <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Detalles de la Fuente</span>
-                    <div className="text-slate-700 bg-slate-50 p-4 rounded-lg text-sm border border-slate-100 whitespace-pre-wrap font-mono">
-                      {typeof rawPayload.grantDetails.sourceDetails === 'string' ? rawPayload.grantDetails.sourceDetails : JSON.stringify(rawPayload.grantDetails.sourceDetails, null, 2)}
+                {rawPayload?.grantDetails?.sourceDetails && typeof rawPayload.grantDetails.sourceDetails === 'object' && (
+                  <div className="md:col-span-2 mt-6 space-y-6">
+                    <h3 className="text-lg font-bold text-slate-900 border-b border-slate-100 pb-2">Resumen de la convocatoria</h3>
+                    {rawPayload.grantDetails.sourceDetails.pageSummary && (
+                      <div className="bg-slate-50 p-4 rounded-lg text-slate-700 text-sm border border-slate-100 whitespace-pre-wrap">
+                        {rawPayload.grantDetails.sourceDetails.pageSummary}
+                      </div>
+                    )}
+                    <div className="grid sm:grid-cols-2 gap-6">
+                      {rawPayload.grantDetails.sourceDetails.object && (
+                        <div>
+                          <strong className="block text-xs text-slate-500 uppercase mb-1">Objeto</strong>
+                          <p className="text-sm text-slate-800">{rawPayload.grantDetails.sourceDetails.object}</p>
+                        </div>
+                      )}
+                      {rawPayload.grantDetails.sourceDetails.beneficiaries && (
+                        <div>
+                          <strong className="block text-xs text-slate-500 uppercase mb-1">Beneficiarios</strong>
+                          <p className="text-sm text-slate-800">{rawPayload.grantDetails.sourceDetails.beneficiaries}</p>
+                        </div>
+                      )}
+                      {rawPayload.grantDetails.sourceDetails.amount && (
+                        <div>
+                          <strong className="block text-xs text-slate-500 uppercase mb-1">Importe</strong>
+                          <p className="text-sm text-slate-800">{rawPayload.grantDetails.sourceDetails.amount}</p>
+                        </div>
+                      )}
+                      {rawPayload.grantDetails.sourceDetails.deadline && (
+                        <div>
+                          <strong className="block text-xs text-slate-500 uppercase mb-1">Plazo</strong>
+                          <p className="text-sm text-slate-800">{rawPayload.grantDetails.sourceDetails.deadline}</p>
+                        </div>
+                      )}
+                      {rawPayload.grantDetails.sourceDetails.bases && (
+                        <div>
+                          <strong className="block text-xs text-slate-500 uppercase mb-1">Bases</strong>
+                          <a href={rawPayload.grantDetails.sourceDetails.bases} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline flex items-center gap-1">
+                            Ver bases <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
+                      )}
+                      {rawPayload.grantDetails.sourceDetails.sourceUrl && (
+                        <div>
+                          <strong className="block text-xs text-slate-500 uppercase mb-1">URL Oficial</strong>
+                          <a href={rawPayload.grantDetails.sourceDetails.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline flex items-center gap-1">
+                            Abrir enlace <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {rawPayload?.grantDetails?.sourceDetails && typeof rawPayload.grantDetails.sourceDetails === 'string' && (
+                  <div className="md:col-span-2 mt-6 space-y-4">
+                    <h3 className="text-lg font-bold text-slate-900 border-b border-slate-100 pb-2">Resumen de la convocatoria</h3>
+                    <div className="bg-slate-50 p-4 rounded-lg text-slate-700 text-sm border border-slate-100 whitespace-pre-wrap">
+                      {rawPayload.grantDetails.sourceDetails}
                     </div>
                   </div>
                 )}
