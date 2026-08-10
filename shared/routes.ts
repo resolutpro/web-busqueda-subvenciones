@@ -90,6 +90,32 @@ export const api = {
         404: errorSchemas.notFound,
       }
     },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/grants/:id' as const,
+      input: z.object({
+        isRead: z.boolean().optional(),
+        isImportant: z.boolean().optional(),
+      }),
+      responses: {
+        200: z.custom<GrantWithMatches>(),
+        404: errorSchemas.notFound,
+        401: errorSchemas.unauthorized,
+      },
+    },
+    bulkAction: {
+      method: 'POST' as const,
+      path: '/api/grants/bulk' as const,
+      input: z.object({
+        ids: z.array(z.number()),
+        action: z.enum(['mark_read', 'mark_unread', 'mark_important', 'mark_unimportant', 'delete']),
+      }),
+      responses: {
+        200: z.object({ success: z.boolean() }),
+        400: errorSchemas.validation,
+        401: errorSchemas.unauthorized,
+      },
+    },
     clear: {
       method: 'DELETE' as const,
       path: '/api/webhooks/openclaw/grants/clear' as const,

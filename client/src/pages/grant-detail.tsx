@@ -1,18 +1,26 @@
+import { useEffect } from "react";
 import { useRoute } from "wouter";
-import { useGrant } from "@/hooks/use-grants";
+import { useGrant, useUpdateGrant } from "@/hooks/use-grants";
 import { LayoutShell } from "@/components/layout-shell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MatchScoreBadge } from "@/components/match-score-badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, ExternalLink, CheckCircle, Calendar, AlertCircle, Building, Sparkles } from "lucide-react";
+import { ArrowLeft, ExternalLink, CheckCircle, Calendar, AlertCircle, Building, Sparkles, Star } from "lucide-react";
 import { Link } from "wouter";
 
 export default function GrantDetailPage() {
   const [, params] = useRoute("/grants/:id");
   const id = parseInt(params?.id || "0");
   const { data: grant, isLoading } = useGrant(id);
+  const updateGrantMutation = useUpdateGrant();
+
+  useEffect(() => {
+    if (grant && grant.id && !grant.isRead) {
+      updateGrantMutation.mutate({ id: grant.id, data: { isRead: true } });
+    }
+  }, [grant?.id, grant?.isRead]);
 
   if (isLoading || !grant) {
     return (
@@ -120,6 +128,15 @@ export default function GrantDetailPage() {
             </div>
 
             <div className="flex flex-col gap-3 md:w-48">
+              <Button 
+                variant="outline" 
+                className={`w-full ${grant.isImportant ? 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100' : 'text-slate-500 hover:text-amber-600 hover:bg-amber-50'}`}
+                onClick={() => updateGrantMutation.mutate({ id: grant.id, data: { isImportant: !grant.isImportant } })}
+                disabled={updateGrantMutation.isPending}
+              >
+                <Star className="mr-2 h-4 w-4" fill={grant.isImportant ? "currentColor" : "none"} />
+                {grant.isImportant ? "Destacada" : "Destacar"}
+              </Button>
               {grant.publicUrl ? (
                 <a href={grant.publicUrl} target="_blank" rel="noopener noreferrer">
                   <Button className="w-full bg-primary hover:bg-blue-700 shadow-lg shadow-blue-500/20">

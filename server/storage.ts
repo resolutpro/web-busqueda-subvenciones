@@ -48,6 +48,9 @@ export interface IStorage {
   upsertGrantFromOpenclaw(grant: InsertGrant): Promise<Grant>;
   deleteGrant(id: number): Promise<void>;
   deleteAllGrants(): Promise<void>;
+  updateGrant(id: number, updates: Partial<InsertGrant> & { isRead?: boolean, isImportant?: boolean }): Promise<Grant>;
+  bulkUpdateGrants(ids: number[], updates: { isRead?: boolean, isImportant?: boolean }): Promise<void>;
+  bulkDeleteGrants(ids: number[]): Promise<void>;
 
   // Matches
   getMatchesByCompany(companyId: number): Promise<(GrantMatch & { grant: Grant })[]>;
@@ -185,6 +188,37 @@ export class DatabaseStorage implements IStorage {
 
   async deleteAllGrants(): Promise<void> {
     await db.delete(grants);
+  }
+
+  async updateGrant(id: number, updates: Partial<InsertGrant> & { isRead?: boolean, isImportant?: boolean }): Promise<Grant> {
+    const [grant] = await db
+      .update(grants)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(grants.id, id))
+      .returning();
+    return grant;
+  }
+
+  async bulkUpdateGrants(ids: number[], updates: { isRead?: boolean, isImportant?: boolean }): Promise<void> {
+    if (ids.length === 0) return;
+    // We can run updates in a transaction or with an in-array condition.
+    // Drizzle doesn't have an easy `inArray` out of the box in all versions without importing it, so we'll do a transaction.
+    await db.transaction(async (tx) => {
+      for (const id of ids) {
+        await tx.update(grants)
+          .set({ ...updates, updatedAt: new Date() })
+          .where(eq(grants.id, id));
+      }
+    });
+  }
+
+  async bulkDeleteGrants(ids: number[]): Promise<void> {
+    if (ids.length === 0) return;
+    await db.transaction(async (tx) => {
+      for (const id of ids) {
+        await tx.delete(grants).where(eq(grants.id, id));
+      }
+    });
   }
 
   async upsertGrantFromOpenclaw(insertGrant: InsertGrant): Promise<Grant> {

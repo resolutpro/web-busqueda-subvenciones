@@ -169,6 +169,54 @@ export async function registerRoutes(
     }
   });
 
+  app.patch(api.grants.update.path, isAuthenticated, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const grant = await storage.getGrant(id);
+      if (!grant) return res.status(404).json({ message: "Grant not found" });
+
+      const input = api.grants.update.input.parse(req.body);
+      const updated = await storage.updateGrant(id, input);
+      
+      const grantMatchesList = await storage.getMatchesByGrant(id);
+      const bestMatch = grantMatchesList.length > 0 ? grantMatchesList[0] : null;
+
+      res.json({ ...updated, match: bestMatch, matches: grantMatchesList });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.errors[0].message });
+      }
+      console.error("Error updating grant:", error);
+      res.status(500).json({ message: "Error updating grant" });
+    }
+  });
+
+  app.post(api.grants.bulkAction.path, isAuthenticated, async (req: any, res) => {
+    try {
+      const { ids, action } = api.grants.bulkAction.input.parse(req.body);
+      
+      if (action === 'delete') {
+        await storage.bulkDeleteGrants(ids);
+      } else if (action === 'mark_read') {
+        await storage.bulkUpdateGrants(ids, { isRead: true });
+      } else if (action === 'mark_unread') {
+        await storage.bulkUpdateGrants(ids, { isRead: false });
+      } else if (action === 'mark_important') {
+        await storage.bulkUpdateGrants(ids, { isImportant: true });
+      } else if (action === 'mark_unimportant') {
+        await storage.bulkUpdateGrants(ids, { isImportant: false });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.errors[0].message });
+      }
+      console.error("Error in bulk action:", error);
+      res.status(500).json({ message: "Error processing bulk action" });
+    }
+  });
+
 
   // 4. Matches Routes
   app.get(api.matches.list.path, isAuthenticated, async (req: any, res) => {

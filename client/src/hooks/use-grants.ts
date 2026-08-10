@@ -111,3 +111,70 @@ export function useScanStatus() {
     refetchInterval: 60000,
   });
 }
+
+export function useUpdateGrant() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: { isRead?: boolean; isImportant?: boolean } }) => {
+      const url = buildUrl(api.grants.update.path, { id });
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+
+      if (!res.ok) throw new Error("Failed to update grant");
+      return res.json();
+    },
+    onSuccess: (updatedGrant) => {
+      queryClient.setQueryData([api.grants.get.path, updatedGrant.id], updatedGrant);
+      queryClient.invalidateQueries({ queryKey: [api.grants.list.path] });
+    },
+  });
+}
+
+export function useBulkGrantsAction() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ ids, action }: { ids: number[]; action: 'mark_read' | 'mark_unread' | 'mark_important' | 'mark_unimportant' | 'delete' }) => {
+      const res = await fetch(api.grants.bulkAction.path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, action }),
+        credentials: "include",
+      });
+
+      if (!res.ok) throw new Error("Failed to perform bulk action");
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: [api.grants.list.path] });
+      
+      let title = "Acción completada";
+      let description = "Se han actualizado las convocatorias.";
+      
+      if (variables.action === 'delete') {
+        description = "Convocatorias eliminadas correctamente.";
+      } else if (variables.action === 'mark_read') {
+        description = "Marcadas como leídas.";
+      } else if (variables.action === 'mark_unread') {
+        description = "Marcadas como no leídas.";
+      } else if (variables.action === 'mark_important') {
+        description = "Marcadas como destacadas.";
+      }
+      
+      toast({ title, description });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "No se pudo realizar la acción.",
+        variant: "destructive",
+      });
+    }
+  });
+}
